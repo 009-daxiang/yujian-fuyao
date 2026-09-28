@@ -1086,7 +1086,7 @@ function openLevelUp() {
     const c = document.createElement('div');
     c.className = 'card';
     const icf = ICON_FILES[u.id];
-    c.innerHTML = '<div class="ic">' + (icf ? '<img src="assets/icons/' + icf + '.svg" alt="">' : u.icon) + '</div><div class="nm">' + u.name + '</div><div class="ds">' + u.desc + '</div>';
+    c.innerHTML = '<div class="ic">' + (icf ? '<img src="assets/icons/' + icf + '.svg" alt="">' : u.icon) + '</div><div class="tx"><div class="nm">' + u.name + '</div><div class="ds">' + u.desc + '</div></div>';
     c.onclick = () => pickCard(i);
     box.appendChild(c);
   });
