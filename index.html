@@ -2534,13 +2534,13 @@ function drawHUD() {
   const k = IS_MOBILE ? Math.max(0.82, Math.min(1, Math.min(W / 700, H / 430))) : Math.max(0.68, Math.min(1, Math.min(W / 760, H / 460))); // HUD 缩放
   ctx.textBaseline = 'middle';
   // 生命 / 经验（左上，Lv 与血条同行）
-  const bwL = 200 * k;
+  const bwL = (W < 500 ? 132 : 200) * k; // 竖屏手机收窄血条避免压标题
   bar(12, 10, bwL, 16 * k, p.hp / p.maxHp, '#e5484d', Math.ceil(p.hp) + ' / ' + p.maxHp);
   bar(12, 10 + 24 * k, bwL, 10 * k, p.xp / p.xpNext, '#37c8ff', null);
   ctx.fillStyle = '#9fd8ff'; ctx.font = 'bold ' + Math.round(12 * k) + 'px "Kaiti SC","KaiTi",serif'; ctx.textAlign = 'left';
   ctx.fillText('Lv.' + p.xpLv, 12 + bwL + 8, 18);
   // 中上：标题与进度条分行错开，避免遮挡
-  const bwC = Math.min(320, W - 150);
+  const bwC = Math.min(320, W - (W < 500 ? 96 : 150));
   ctx.textAlign = 'center';
   ctx.font = 'bold ' + Math.round(17 * k) + 'px "Kaiti SC","KaiTi",serif';
   ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 3;
