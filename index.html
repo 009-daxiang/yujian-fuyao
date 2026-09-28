@@ -356,11 +356,13 @@ Object.keys(MONSTERS).forEach(t => {
   MON_IMG[t] = im;
 });
 const PLAYER_IMG = {};
-['t1', 't2', 't3', 't4'].forEach(k => {
+for (let i = 0; i < 52; i++) {
   const im = new Image();
-  im.src = 'assets/player/' + k + '.png';
-  PLAYER_IMG[k] = im;
-});
+  im.src = 'assets/player/p' + String(i).padStart(2, '0') + '.png';
+  PLAYER_IMG['p' + String(i).padStart(2, '0')] = im;
+}
+const STAGE_RANK = ['凡人境', '灵修境', '魔将境', '魔君境', '大妖境', '天外境'];
+const RANK_AURA = ['rgba(127,224,255,0.16)', 'rgba(170,120,255,0.18)', 'rgba(255,120,120,0.18)', 'rgba(255,215,130,0.2)', 'rgba(240,240,255,0.22)', 'rgba(200,150,255,0.25)'];
 const BOSS_IMG = {};
 ['king', 'queen', 'ninehead', 'centipede', 'zhulong', 'qiongqi', 'taowu', 'taotie'].forEach(k => {
   const im = new Image();
@@ -591,6 +593,12 @@ function startLevel(lv, freshPlayer) {
   G.boss = null; G.pbolts = []; G.zones = []; G.spawnT = 0.35; G.burstT = rand(8, 12);
   G.pet = lv >= 100 ? (G.pet || newPet()) : null;
   G.petMsg = lv === 100 ? 4 : 0;
+  const stgNow = Math.min(51, Math.floor((lv - 1) / 10));
+  if (stgNow > (G.player.stageShown || 0)) {
+    G.player.stageShown = stgNow;
+    G.stageMsg = 4; G.stageMsgText = '境界突破 · ' + STAGE_RANK[Math.min(5, Math.floor(stgNow / 10))] + ' · 第' + (stgNow + 1) + '形';
+    sfx.levelup();
+  }
   if (G.pet) { G.pet.x = G.player.x - 46; G.pet.y = G.player.y - 36; }
   const p = G.player;
   p.x = WORLD.w / 2; p.y = WORLD.h / 2; p.hp = p.maxHp; p.invuln = 1.4; p.orbit.ang = 0;
@@ -1133,6 +1141,7 @@ function update(dt) {
   p.invuln = Math.max(0, p.invuln - dt);
   p.slowT = Math.max(0, (p.slowT || 0) - dt);
   if (G.petMsg > 0) G.petMsg -= dt;
+  if (G.stageMsg > 0) G.stageMsg -= dt;
   p.footFlash = Math.max(0, (p.footFlash || 0) - dt);
 
   // 移动
@@ -1718,17 +1727,18 @@ function drawSword(x, y, ang, len, glow, elem, tassel) {
 }
 function drawPlayer(p) {
   const t = G.t;
-  const tier = playerTier(p);
+  const stage = playerStage();
+  const tier = stage; // 兼容旧变量名
   const moving = keys.size > 0 || joy;
-  const bob = Math.sin(t * 11) * (moving ? 2 : 0.8) - (tier >= 3 ? 3 : 0); // 高阶御空微浮
+  const bob = Math.sin(t * 11) * (moving ? 2 : 0.8) - (stage >= 10 ? 3 : 0); // 高阶御空微浮
   ctx.save();
   // 影子
   ctx.fillStyle = 'rgba(0,0,0,0.4)';
   ctx.beginPath(); ctx.ellipse(p.x, p.y + 16, 15, 5, 0, 0, TAU); ctx.fill();
   if (p.invuln > 0 && Math.floor(t * 18) % 2 === 0) { ctx.restore(); return; }
-  // 修为灵光（三阶以上）
-  if (tier >= 3) {
-    ctx.fillStyle = 'rgba(110,220,255,0.16)';
+  // 修为灵光（境界光环，随境界变色）
+  if (stage >= 10) {
+    ctx.fillStyle = RANK_AURA[Math.min(5, Math.floor(stage / 10))];
     ctx.beginPath(); ctx.ellipse(p.x, p.y + 14, 24 + Math.sin(t * 3) * 2, 8, 0, 0, TAU); ctx.fill();
   }
   ctx.translate(p.x, p.y + bob);
@@ -1746,22 +1756,23 @@ function drawPlayer(p) {
     ctx.fillStyle = 'rgba(90,180,255,0.05)';
     ctx.beginPath(); ctx.arc(0, 0, p.aura.r, 0, TAU); ctx.fill();
   }
-  // 环绕灵光点（三阶以上）
-  if (tier >= 3) {
-    const n = tier >= 4 ? 4 : 2;
+  // 环绕灵光点（灵修境以上）
+  if (stage >= 5) {
+    const n = stage >= 30 ? 5 : 2;
     for (let i = 0; i < n; i++) {
       const ma = t * 1.8 + i / n * TAU;
       ctx.fillStyle = 'rgba(170,230,255,0.9)';
       ctx.beginPath(); ctx.arc(Math.cos(ma) * 27, Math.sin(ma) * 11 - 8, 2, 0, TAU); ctx.fill();
     }
   }
-  // 背负灵剑（二阶以上）
-  if (tier >= 2) drawSword(-7, -6, -2.3, 30, 0.25, swordElement(p));
-  // 修士贴图（开源人形贴图 · 四阶进化：灵溪仙子/林间仙者/鬼修/半神）
-  const pi = PLAYER_IMG['t' + tier];
+  // 背负灵剑（灵修境以上）
+  if (stage >= 2) drawSword(-7, -6, -2.3, 30, 0.25, swordElement(p));
+  // 修士贴图（开源人形贴图 · 52 形，每十关一变）
+  const pi = PLAYER_IMG['p' + String(stage).padStart(2, '0')];
   if (pi && pi.complete && pi.naturalWidth > 0) {
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(pi, -15, -27, 30, 33);
+    const psz = 30 + stage * 0.24; // 身形随境界缓缓增大
+    ctx.drawImage(pi, -psz / 2, -psz / 2 - 11, psz, psz + 3);
     ctx.imageSmoothingEnabled = true;
   } else {
     // 道袍（三阶换月白，四阶金纹）
@@ -1785,10 +1796,11 @@ function drawPlayer(p) {
     ctx.beginPath(); ctx.arc(4, -15, 1.3, 0, TAU); ctx.fill();
     ctx.beginPath(); ctx.arc(-2, -15, 1.3, 0, TAU); ctx.fill();
   }
-  // 剑仙光环（四阶）
-  if (tier >= 4) {
-    ctx.strokeStyle = 'rgba(255,224,130,0.9)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.ellipse(0, -46, 13, 4.5, 0, 0, TAU); ctx.stroke();
+  // 境界光环（魔君境金环、天外境双环）
+  if (stage >= 15) {
+    ctx.strokeStyle = stage >= 50 ? 'rgba(255,255,255,0.9)' : 'rgba(255,224,130,0.9)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(0, -46 - stage * 0.1, 13 + stage * 0.08, 4.5, 0, 0, TAU); ctx.stroke();
+    if (stage >= 30) { ctx.beginPath(); ctx.ellipse(0, -46 - stage * 0.1, 17 + stage * 0.08, 6, 0, 0, TAU); ctx.stroke(); }
   }
   // 蛛丝缠身
   if (p.slowT > 0) {
@@ -2389,7 +2401,8 @@ function drawMonLegacy(e) {
 }
 
 /* ================= 绘制：BOSS ================= */
-function playerTier(p) { return p.xpLv >= 15 ? 4 : p.xpLv >= 10 ? 3 : p.xpLv >= 5 ? 2 : 1; }
+function playerStage() { return Math.min(51, Math.floor((G.level - 1) / 10)); }
+function playerTier(p) { return playerStage(); }
 function newPet() {
   return { x: 0, y: 0, t: 0, shootT: 1, skillT: 5, stage: 1 };
 }
@@ -2602,6 +2615,15 @@ function drawHUD() {
     ctx.beginPath(); ctx.arc(jx, jy, 16, 0, TAU); ctx.fill();
     ctx.fillStyle = 'rgba(201,191,174,0.8)'; ctx.font = '13px "Kaiti SC","KaiTi",serif'; ctx.textAlign = 'center';
     ctx.fillText('滑动移动', jx, jy + 62);
+  }
+  // 境界突破播报
+  if (G.stageMsg > 0 && G.stageMsgText) {
+    ctx.globalAlpha = clamp(G.stageMsg, 0, 1);
+    ctx.textAlign = 'center'; ctx.fillStyle = '#c9a0ff'; ctx.font = 'bold 19px "Kaiti SC","KaiTi",serif';
+    ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 4;
+    ctx.strokeText(G.stageMsgText, W / 2, H * 0.32 - 70);
+    ctx.fillText(G.stageMsgText, W / 2, H * 0.32 - 70);
+    ctx.globalAlpha = 1;
   }
   // 灵宠提示
   if (G.petMsg > 0 && G.pet) {
