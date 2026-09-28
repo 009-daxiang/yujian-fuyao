@@ -1154,7 +1154,7 @@ function update(dt) {
   // 环绕飞剑
   const orb = p.orbit;
   orb.ang += orb.rot * dt;
-  const slen = orb.len * p.sizeMul;
+  const slen = orb.len * p.sizeMul * 0.67;
   for (let i = 0; i < orb.count; i++) {
     const a = orb.ang + i / orb.count * TAU;
     const sx = p.x + Math.cos(a) * orb.radius, sy = p.y + Math.sin(a) * orb.radius;
@@ -1203,7 +1203,7 @@ function update(dt) {
       const ang = (tgt ? Math.atan2(tgt.y - p.y, tgt.x - p.x) : rand(TAU)) + spread;
       G.flies.push({
         x: p.x, y: p.y + 15, ang, speed: fly.speed, traveled: 0, phase: 'out',
-        len: fly.len * p.sizeMul, dmg: fly.dmg * p.dmgMul, trail: [], scale: 0.3,
+        len: fly.len * p.sizeMul * 0.67, dmg: fly.dmg * p.dmgMul, trail: [], scale: 0.3,
         idx, age: 0, backAt: 0.9 + idx * 0.15,
       });
       p.footFlash = 0.12;
@@ -2544,37 +2544,77 @@ function shade(hex, k) {
 }
 function drawHUD() {
   const p = G.player, cfg = G.cfg;
-  const k = IS_MOBILE ? Math.max(0.82, Math.min(1, Math.min(W / 700, H / 430))) : Math.max(0.68, Math.min(1, Math.min(W / 760, H / 460))); // HUD 缩放
+  const narrow = W < 760; // 手机窄屏：堆叠布局
+  const k = narrow ? Math.max(0.85, Math.min(1, Math.min(W / 700, H / 430))) : Math.max(0.68, Math.min(1, Math.min(W / 760, H / 460)));
+  const font = n => Math.round(n * k) + 'px "Kaiti SC","KaiTi",serif';
   ctx.textBaseline = 'middle';
-  // 生命 / 经验（左上，Lv 与血条同行）
-  const bwL = (W < 500 ? 132 : 200) * k; // 竖屏手机收窄血条避免压标题
-  bar(12, 10, bwL, 16 * k, p.hp / p.maxHp, '#e5484d', Math.ceil(p.hp) + ' / ' + p.maxHp);
-  bar(12, 10 + 24 * k, bwL, 10 * k, p.xp / p.xpNext, '#37c8ff', null);
-  ctx.fillStyle = '#9fd8ff'; ctx.font = 'bold ' + Math.round(12 * k) + 'px "Kaiti SC","KaiTi",serif'; ctx.textAlign = 'left';
-  ctx.fillText('Lv.' + p.xpLv, 12 + bwL + 8, 18);
-  // 中上：标题与进度条分行错开，避免遮挡
-  const bwC = Math.min(320, W - (W < 500 ? 96 : 150));
-  ctx.textAlign = 'center';
-  ctx.font = 'bold ' + Math.round(17 * k) + 'px "Kaiti SC","KaiTi",serif';
+  const bwL = (narrow ? 128 : 200) * k;
+  const bossBar = G.boss && !G.boss.dead;
   ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 3;
-  ctx.strokeText('第' + G.level + '关 · ' + cfg.name, W / 2, 14);
-  ctx.fillStyle = '#f0d890';
-  ctx.fillText('第' + G.level + '关 · ' + cfg.name, W / 2, 14);
-  if (G.boss && !G.boss.dead) {
-    bar(W / 2 - bwC / 2, 30, bwC, 12, Math.max(0, G.boss.hp / G.boss.maxHp), '#a030e0', G.boss.name + ' ' + Math.max(0, Math.ceil(G.boss.hp)));
+
+  if (!narrow) {
+    // —— 桌面三栏布局 ——
+    bar(12, 10, bwL, 16 * k, p.hp / p.maxHp, '#e5484d', Math.ceil(p.hp) + ' / ' + p.maxHp);
+    bar(12, 10 + 24 * k, bwL, 10 * k, p.xp / p.xpNext, '#37c8ff', null);
+    ctx.fillStyle = '#9fd8ff'; ctx.font = 'bold ' + Math.round(12 * k) + 'px "Kaiti SC","KaiTi",serif'; ctx.textAlign = 'left';
+    ctx.fillText('Lv.' + p.xpLv, 12 + bwL + 8, 18);
+    let bx = 12;
+    for (const id of ['big', 'rate', 'crit', 'homing', 'volley', 'aura']) {
+      if ((p.upCounts[id] || 0) > 0) {
+        const im = ICON_IMG[id];
+        if (im && im.complete && im.naturalWidth > 0) ctx.drawImage(im, bx, 10 + 44 * k, 15, 15);
+        else { ctx.fillStyle = '#c9bfae'; ctx.fillRect(bx, 10 + 44 * k, 15, 15); }
+        bx += 19;
+      }
+    }
+    ctx.textAlign = 'center';
+    ctx.font = 'bold ' + Math.round(17 * k) + 'px "Kaiti SC","KaiTi",serif';
+    const title = '第' + G.level + '关 · ' + cfg.name;
+    ctx.strokeText(title, W / 2, 14); ctx.fillStyle = '#f0d890'; ctx.fillText(title, W / 2, 14);
+    const bwC = Math.min(320, W - 150);
+    if (bossBar) bar(W / 2 - bwC / 2, 30, bwC, 12, Math.max(0, G.boss.hp / G.boss.maxHp), '#a030e0', G.boss.name + ' ' + Math.max(0, Math.ceil(G.boss.hp)));
+    else bar(W / 2 - bwC / 2, 30, bwC, 12, G.killsThisLevel / cfg.quota, '#d8b24a', '斩妖 ' + G.killsThisLevel + ' / ' + cfg.quota);
+    ctx.textAlign = 'right'; ctx.font = Math.round(14 * k) + 'px "Kaiti SC","KaiTi",serif';
+    ctx.strokeText('总斩妖 ' + G.kills, W - 12, 14);
+    ctx.fillStyle = '#c9bfae'; ctx.fillText('总斩妖 ' + G.kills, W - 12, 14);
+    ctx.strokeText(fmtTime(G.time), W - 12, 36);
+    ctx.fillText(fmtTime(G.time), W - 12, 36);
+    var mw2 = Math.min(150, W * 0.26), mh2 = Math.round(mw2 * WORLD.h / WORLD.w), mx0 = W - 12 - mw2, my0 = 52;
   } else {
-    bar(W / 2 - bwC / 2, 30, bwC, 12, G.killsThisLevel / cfg.quota, '#d8b24a', '斩妖 ' + G.killsThisLevel + ' / ' + cfg.quota);
+    // —— 手机堆叠布局（各行互不重叠）——
+    bar(12, 8, bwL, 13, p.hp / p.maxHp, '#e5484d', Math.ceil(p.hp) + ' / ' + p.maxHp);
+    bar(12, 26, bwL, 8, p.xp / p.xpNext, '#37c8ff', null);
+    ctx.fillStyle = '#9fd8ff'; ctx.font = 'bold ' + Math.round(11 * k) + 'px "Kaiti SC","KaiTi",serif'; ctx.textAlign = 'left';
+    ctx.fillText('Lv.' + p.xpLv, 12 + bwL + 6, 30);
+    // 剑意徽章（血条右侧）
+    let bx = 12 + bwL + 42;
+    for (const id of ['big', 'rate', 'crit', 'homing', 'volley', 'aura']) {
+      if ((p.upCounts[id] || 0) > 0) {
+        const im = ICON_IMG[id];
+        if (im && im.complete && im.naturalWidth > 0) ctx.drawImage(im, bx, 22, 14, 14);
+        else { ctx.fillStyle = '#c9bfae'; ctx.fillRect(bx, 22, 14, 14); }
+        bx += 17;
+      }
+    }
+    // 标题
+    ctx.textAlign = 'center';
+    ctx.font = 'bold ' + Math.round(15 * k) + 'px "Kaiti SC","KaiTi",serif';
+    const title = '第' + G.level + '关 · ' + cfg.name;
+    ctx.strokeText(title, W / 2, 10); ctx.fillStyle = '#f0d890'; ctx.fillText(title, W / 2, 10);
+    // 进度条（独占一行）
+    const bwC = Math.min(W - 20, 340);
+    if (bossBar) bar(W / 2 - bwC / 2, 24, bwC, 11, Math.max(0, G.boss.hp / G.boss.maxHp), '#a030e0', G.boss.name + ' ' + Math.max(0, Math.ceil(G.boss.hp)));
+    else bar(W / 2 - bwC / 2, 24, bwC, 11, G.killsThisLevel / cfg.quota, '#d8b24a', '斩妖 ' + G.killsThisLevel + ' / ' + cfg.quota);
+    // 右上
+    ctx.textAlign = 'right'; ctx.font = Math.round(12 * k) + 'px "Kaiti SC","KaiTi",serif';
+    ctx.strokeText('总斩妖 ' + G.kills, W - 10, 46);
+    ctx.fillStyle = '#c9bfae'; ctx.fillText('总斩妖 ' + G.kills, W - 10, 46);
+    ctx.strokeText(fmtTime(G.time), W - 10, 62);
+    ctx.fillText(fmtTime(G.time), W - 10, 62);
+    var mw2 = Math.min(118, W * 0.3), mh2 = Math.round(mw2 * WORLD.h / WORLD.w), mx0 = W - 10 - mw2, my0 = 78;
   }
-  // 右上
-  ctx.textAlign = 'right'; ctx.font = Math.round(14 * k) + 'px "Kaiti SC","KaiTi",serif';
-  ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 3;
-  ctx.strokeText('总斩妖 ' + G.kills, W - 12, 14);
-  ctx.fillStyle = '#c9bfae';
-  ctx.fillText('总斩妖 ' + G.kills, W - 12, 14);
-  ctx.strokeText(fmtTime(G.time), W - 12, 36);
-  ctx.fillText(fmtTime(G.time), W - 12, 36);
   // 小地图
-  const mw2 = Math.min(150, W * 0.26), mh2 = Math.round(mw2 * WORLD.h / WORLD.w), mx0 = W - 12 - mw2, my0 = 52, k2 = mw2 / WORLD.w;
+  const k2 = mw2 / WORLD.w;
   ctx.fillStyle = 'rgba(8,6,14,0.66)';
   ctx.strokeStyle = 'rgba(138,109,47,0.6)'; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.roundRect(mx0, my0, mw2, mh2, 6); ctx.fill(); ctx.stroke();
@@ -2588,19 +2628,35 @@ function drawHUD() {
   }
   ctx.fillStyle = '#7fe0ff';
   ctx.beginPath(); ctx.arc(mx0 + p.x * k2, my0 + p.y * k2, 3, 0, TAU); ctx.fill();
-  // 鼠标方向标
-  if (G.mouse && !joy) {
-    ctx.strokeStyle = 'rgba(232,200,106,0.7)'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(G.mouse.x, G.mouse.y, 9, 0, TAU); ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(G.mouse.x - 14, G.mouse.y); ctx.lineTo(G.mouse.x - 5, G.mouse.y);
-    ctx.moveTo(G.mouse.x + 5, G.mouse.y); ctx.lineTo(G.mouse.x + 14, G.mouse.y);
-    ctx.moveTo(G.mouse.x, G.mouse.y - 14); ctx.lineTo(G.mouse.x, G.mouse.y - 5);
-    ctx.moveTo(G.mouse.x, G.mouse.y + 5); ctx.lineTo(G.mouse.x, G.mouse.y + 14);
-    ctx.stroke();
+  // 剑意徽章（窄屏第二行左侧）
+  if (narrow) {
+    let bx2 = 12;
+    for (const id of ['big', 'rate', 'crit', 'homing', 'volley', 'aura']) {
+      if ((p.upCounts[id] || 0) > 0) {
+        const im = ICON_IMG[id];
+        if (im && im.complete && im.naturalWidth > 0) ctx.drawImage(im, bx2, 44, 14, 14);
+        bx2 += 17;
+      }
+    }
   }
-  // 操作提示
-  if (G.time < 5 && G.level === 1) {
+  // 境界突破播报
+  if (G.stageMsg > 0 && G.stageMsgText) {
+    ctx.globalAlpha = clamp(G.stageMsg, 0, 1);
+    ctx.textAlign = 'center'; ctx.fillStyle = '#c9a0ff'; ctx.font = 'bold 19px "Kaiti SC","KaiTi",serif';
+    ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 4;
+    ctx.strokeText(G.stageMsgText, W / 2, H * 0.3 - 60);
+    ctx.fillText(G.stageMsgText, W / 2, H * 0.3 - 60);
+    ctx.globalAlpha = 1;
+  }
+  // 灵宠提示
+  if (G.petMsg > 0 && G.pet) {
+    ctx.globalAlpha = clamp(G.petMsg, 0, 1);
+    ctx.textAlign = 'center'; ctx.fillStyle = '#7fe0ff'; ctx.font = '16px "Kaiti SC","KaiTi",serif';
+    ctx.fillText('灵宠「剑灵小白」：自动射灵弹 · 每9秒施放【灵狐护主】回复生命并震退妖物', W / 2, H - 70);
+    ctx.globalAlpha = 1;
+  }
+  // 操作提示（桌面）
+  if (!narrow && G.time < 5 && G.level === 1) {
     ctx.globalAlpha = clamp(5 - G.time, 0, 1);
     ctx.textAlign = 'center'; ctx.fillStyle = '#9c8fb8'; ctx.font = '16px "Kaiti SC","KaiTi",serif';
     ctx.fillText('移动鼠标指引方向 / WASD · 飞剑自动诛妖', W / 2, H - 40);
@@ -2616,49 +2672,33 @@ function drawHUD() {
     ctx.fillStyle = 'rgba(201,191,174,0.8)'; ctx.font = '13px "Kaiti SC","KaiTi",serif'; ctx.textAlign = 'center';
     ctx.fillText('滑动移动', jx, jy + 62);
   }
-  // 境界突破播报
-  if (G.stageMsg > 0 && G.stageMsgText) {
-    ctx.globalAlpha = clamp(G.stageMsg, 0, 1);
-    ctx.textAlign = 'center'; ctx.fillStyle = '#c9a0ff'; ctx.font = 'bold 19px "Kaiti SC","KaiTi",serif';
-    ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 4;
-    ctx.strokeText(G.stageMsgText, W / 2, H * 0.32 - 70);
-    ctx.fillText(G.stageMsgText, W / 2, H * 0.32 - 70);
-    ctx.globalAlpha = 1;
-  }
-  // 灵宠提示
-  if (G.petMsg > 0 && G.pet) {
-    ctx.globalAlpha = clamp(G.petMsg, 0, 1);
-    ctx.textAlign = 'center'; ctx.fillStyle = '#7fe0ff'; ctx.font = '16px "Kaiti SC","KaiTi",serif';
-    ctx.fillText('灵宠「剑灵小白」：自动射灵弹 · 每9秒施放【灵狐护主】回复生命并震退妖物', W / 2, H - 70);
-    ctx.globalAlpha = 1;
-  }
-  // 关卡开场
+  // 关卡开场横幅
   if (G.introT > 0) {
-    const a = clamp(G.introT > 2 ? (2.6 - G.introT) * 2 : G.introT / 1.2, 0, 1);
-    ctx.globalAlpha = a;
+    const ia = clamp(G.introT > 2 ? (2.6 - G.introT) * 2 : G.introT / 1.2, 0, 1);
+    ctx.globalAlpha = ia;
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#f0d890'; ctx.font = 'bold 52px "Kaiti SC","KaiTi",serif';
-    ctx.fillText('第' + G.level + '关', W / 2, H * 0.32);
-    ctx.fillStyle = '#c9bfae'; ctx.font = '26px "Kaiti SC","KaiTi",serif';
-    ctx.fillText(cfg.name + (cfg.boss ? ' · 妖王现世' : ''), W / 2, H * 0.32 + 46);
+    ctx.fillStyle = '#f0d890'; ctx.font = 'bold ' + Math.round((narrow ? 34 : 52) * k) + 'px "Kaiti SC","KaiTi",serif';
+    ctx.fillText('第' + G.level + '关', W / 2, H * 0.3);
+    ctx.fillStyle = '#c9bfae'; ctx.font = Math.round((narrow ? 17 : 26) * k) + 'px "Kaiti SC","KaiTi",serif';
+    ctx.fillText(cfg.name + (cfg.boss ? ' · 妖王现世' : ''), W / 2, H * 0.3 + 40);
     if (G.level >= 100) {
-      ctx.fillStyle = '#7fe0ff'; ctx.font = '20px "Kaiti SC","KaiTi",serif';
-      ctx.fillText('灵宠 · 剑灵小白 伴随出战', W / 2, H * 0.32 + 82);
+      ctx.fillStyle = '#7fe0ff'; ctx.font = Math.round(16 * k) + 'px "Kaiti SC","KaiTi",serif';
+      ctx.fillText('灵宠 · 剑灵小白 伴随出战', W / 2, H * 0.3 + 74);
     }
     ctx.globalAlpha = 1;
   }
-  // 摇杆
-  if (joy) {
-    ctx.strokeStyle = 'rgba(232,200,106,0.5)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(joy.ox, joy.oy, 48, 0, TAU); ctx.stroke();
-    ctx.fillStyle = 'rgba(232,200,106,0.35)';
-    const dx = joy.x - joy.ox, dy = joy.y - joy.oy, d = Math.min(48, Math.hypot(dx, dy));
-    const a = Math.atan2(dy, dx);
-    ctx.beginPath(); ctx.arc(joy.ox + Math.cos(a) * d, joy.oy + Math.sin(a) * d, 20, 0, TAU); ctx.fill();
+  // 鼠标方向标（桌面）
+  if (!IS_MOBILE && G.mouse && !joy) {
+    ctx.strokeStyle = 'rgba(232,200,106,0.7)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(G.mouse.x, G.mouse.y, 9, 0, TAU); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(G.mouse.x - 14, G.mouse.y); ctx.lineTo(G.mouse.x - 5, G.mouse.y);
+    ctx.moveTo(G.mouse.x + 5, G.mouse.y); ctx.lineTo(G.mouse.x + 14, G.mouse.y);
+    ctx.moveTo(G.mouse.x, G.mouse.y - 14); ctx.lineTo(G.mouse.x, G.mouse.y - 5);
+    ctx.moveTo(G.mouse.x, G.mouse.y + 5); ctx.lineTo(G.mouse.x, G.mouse.y + 14);
+    ctx.stroke();
   }
 }
-
-/* ================= 主循环 ================= */
 let lastT = performance.now();
 function frame(now) {
   let dt = Math.min(0.033, (now - lastT) / 1000);
