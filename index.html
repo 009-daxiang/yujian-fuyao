@@ -376,6 +376,16 @@ const BG_FLOORS = ['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9', 'b10', 
   im.src = 'assets/bg2/' + k + '.png';
   return im;
 });
+// 技能品阶（BOSS 掉落卷轴）
+const GRADE_META = [
+  { n: 'B', c: '#7ab0e8' }, { n: 'A', c: '#7ac74f' }, { n: 'S', c: '#ffd860' },
+  { n: 'SS', c: '#c060ff' }, { n: 'SSS', c: '#ff5050' },
+];
+const SCROLL_IMGS = ['scroll-blue', 'scroll-green', 'scroll-cyan', 'scroll-brown', 'scroll-grey'].map(f => {
+  const im = new Image();
+  im.src = 'assets/item/' + f + '.png';
+  return im;
+});
 // 技能图标（game-icons.net · CC BY 3.0）
 const ICON_FILES = {
   sword: 'sword', big: 'big', dmg: 'dmg', speed: 'speed', rate: 'rate', orbit: 'orbit',
@@ -574,7 +584,7 @@ function newPlayer() {
     dmgMul: 1, sizeMul: 1, crit: 0, magnet: 72, xpMul: 1, upCounts: {},
     orbit: { count: 2, radius: 96, rot: 2.7, ang: 0, len: 82, dmg: 9 },
     fly: { cd: 1.6, t: 0.9, speed: 660, len: 88, dmg: 12 },
-    flyExtra: 0, flyHoming: 0,
+    flyExtra: 0, flyHoming: 0, splitGrade: -1, splitBonus: 0,
     aura: null,
   };
 }
@@ -786,6 +796,10 @@ function updateBoss(dt) {
     } else if (!b.dead) {
       b.dead = true;
       if (b.kind === 'king' || b.kind === 'ninehead' || b.kind === 'queen') { burst(b.x, b.y, b.kind === 'king' ? '#c060ff' : b.kind === 'queen' ? '#a878e8' : '#a0d060', 60); shake(14, 0.8); }
+      // BOSS 掉落技能卷轴（品阶随章节：B/A/S/SS/SSS）
+      const gdrop = G.level >= 501 ? 4 : Math.floor((G.level - 1) / 5) % 4;
+      G.pickups.push({ x: b.x, y: b.y, kind: 'scroll', grade: gdrop, t: 0 });
+      addFloat(b.x, b.y - b.r - 34, '技能卷轴掉落！', GRADE_META[gdrop].c, 18);
       checkClear();
     }
     return;
@@ -1233,10 +1247,12 @@ function update(dt) {
       // 出鞘：飞剑逐渐变大
       f.scale = Math.min(1, (f.scale || 1) + 4.5 * dt);
       f.age = (f.age || 0) + dt;
+      if (f.life !== undefined) { f.life -= dt; if (f.life <= 0) { G.flies.splice(i, 1); continue; } }
       // 按激发顺序依次折返，收回脚底
       if (f.age >= (f.backAt || 0.9)) f.phase = 'back';
-      // 回风剑诀：飞剑拐弯追踪妖物
-      if (p.flyHoming) {
+      // 追踪：回风剑诀 / 分裂剑意（自动追踪）
+      const hLv = Math.max(p.flyHoming || 0, p.splitGrade >= 0 ? (f.child ? 2 : 1) : 0);
+      if (hLv) {
         let best = null, bd = 340 * 340;
         for (const e of G.monsters) { if (e.hp <= 0) continue; const d2v = dist2(f.x, f.y, e.x, e.y); if (d2v < bd) { bd = d2v; best = e; } }
         if (G.boss && G.boss.dying < 0) { const d2v = dist2(f.x, f.y, G.boss.x, G.boss.y); if (d2v < bd) { bd = d2v; best = G.boss; } }
@@ -1245,7 +1261,8 @@ function update(dt) {
           let da = ta - f.ang;
           while (da > Math.PI) da -= TAU;
           while (da < -Math.PI) da += TAU;
-          f.ang += clamp(da, -3.4 * p.flyHoming * dt, 3.4 * p.flyHoming * dt);
+          const tv = (2.2 + hLv * 1.2) * (f.child ? 1.4 : 1);
+          f.ang += clamp(da, -tv * dt, tv * dt);
         }
       }
       f.x += Math.cos(f.ang) * f.speed * dt;
@@ -1275,6 +1292,19 @@ function update(dt) {
       if (dist2(f.x, f.y, e.x, e.y) < (f.len * 0.22 + e.r) * (f.len * 0.22 + e.r)) {
         e.flyCd = 0.26;
         hurtEnemy(e, f.dmg, f.ang, 240, true);
+        // 分裂剑意：刺中后分裂（品阶越高分裂越多）
+        if (p.splitGrade >= 0 && !f.child && !f.splitDone && G.flies.length < 46) {
+          const n = 2 + p.splitGrade + Math.min(2, p.splitBonus || 0);
+          for (let k2 = 0; k2 < n; k2++) {
+            const sa = f.ang + (k2 - (n - 1) / 2) * 0.55 + rand(-0.08, 0.08);
+            G.flies.push({ x: f.x, y: f.y, ang: sa, speed: f.speed * 0.85, traveled: 0, phase: 'out',
+              len: f.len * 0.6, dmg: f.dmg * 0.6, trail: [], scale: 0.4,
+              child: true, age: 0, backAt: 99, life: 1.1, bossCd: 0.3 });
+          }
+          f.splitDone = true;
+          addRing(f.x, f.y, 6, 24, 'rgba(255,215,130,0.85)');
+          tone(680, 0.05, 'triangle', 0.05, 220);
+        }
       }
     }
     if (G.boss && G.boss.dying < 0 && (f.bossCd || 0) <= 0) {
@@ -1545,10 +1575,31 @@ function update(dt) {
       sfx.pickup();
     }
   }
-  // 葫芦
+  // 灵药 / 技能卷轴
   for (let i = G.pickups.length - 1; i >= 0; i--) {
     const g = G.pickups[i];
     g.t += dt;
+    if (g.kind === 'scroll') {
+      const dd = Math.sqrt(dist2(g.x, g.y, p.x, p.y)) || 1;
+      if (dd < 110) { g.x += (p.x - g.x) / dd * 130 * dt; g.y += (p.y - g.y) / dd * 130 * dt; }
+      if (dd < 26) {
+        G.pickups.splice(i, 1);
+        const gm = GRADE_META[g.grade];
+        if (p.splitGrade < 0) {
+          p.splitGrade = g.grade; p.splitBonus = 0;
+          addFloat(p.x, p.y - 46, '获得「分裂剑意」·' + gm.n + '级！', gm.c, 20);
+        } else if (g.grade > p.splitGrade) {
+          p.splitGrade = g.grade;
+          addFloat(p.x, p.y - 46, '分裂剑意 升至 ' + gm.n + ' 级！', gm.c, 20);
+        } else {
+          p.splitBonus = Math.min(2, (p.splitBonus || 0) + 1);
+          addFloat(p.x, p.y - 46, '分裂之剑 +1！', gm.c, 18);
+        }
+        burst(p.x, p.y, gm.c, 26, 240);
+        sfx.levelup();
+      }
+      continue;
+    }
     if (dist2(g.x, g.y, p.x, p.y) < 30 * 30) {
       G.pickups.splice(i, 1);
       p.hp = Math.min(p.maxHp, p.hp + 25);
@@ -2589,6 +2640,13 @@ function drawHUD() {
         bx += 19;
       }
     }
+    if ((p.splitGrade || -1) >= 0) {
+      const gm = GRADE_META[p.splitGrade];
+      ctx.fillStyle = 'rgba(20,14,30,0.72)'; ctx.fillRect(bx, 10 + 44 * k, 34, 15);
+      ctx.strokeStyle = gm.c; ctx.lineWidth = 1; ctx.strokeRect(bx, 10 + 44 * k, 34, 15);
+      ctx.fillStyle = gm.c; ctx.font = 'bold ' + Math.round(11 * k) + 'px serif'; ctx.textAlign = 'center';
+      ctx.fillText('分' + gm.n, bx + 17, 10 + 44 * k + 8);
+    }
     ctx.textAlign = 'center';
     ctx.font = 'bold ' + Math.round(17 * k) + 'px "Kaiti SC","KaiTi",serif';
     const title = '第' + G.level + '关 · ' + cfg.name;
@@ -2617,6 +2675,13 @@ function drawHUD() {
         else { ctx.fillStyle = '#c9bfae'; ctx.fillRect(bx, 22, 14, 14); }
         bx += 17;
       }
+    }
+    if ((p.splitGrade || -1) >= 0) {
+      const gm = GRADE_META[p.splitGrade];
+      ctx.fillStyle = 'rgba(20,14,30,0.72)'; ctx.fillRect(bx, 15, 32, 14);
+      ctx.strokeStyle = gm.c; ctx.lineWidth = 1; ctx.strokeRect(bx, 15, 32, 14);
+      ctx.fillStyle = gm.c; ctx.font = 'bold ' + Math.round(10 * k) + 'px serif'; ctx.textAlign = 'center';
+      ctx.fillText('分' + gm.n, bx + 16, 25);
     }
     // 标题
     ctx.textAlign = 'center';
@@ -2765,9 +2830,28 @@ function frame(now) {
       ctx.fillStyle = 'rgba(160,240,255,0.9)';
       ctx.beginPath(); ctx.arc(o.x, o.y, 2, 0, TAU); ctx.fill();
     }
-    // 灵药（开源贴图）
+    // 灵药 / 技能卷轴（开源贴图）
     for (const g of G.pickups) {
       const fl = Math.sin(g.t * 5) * 3;
+      if (g.kind === 'scroll') {
+        const gm = GRADE_META[g.grade];
+        const si = SCROLL_IMGS[g.grade % SCROLL_IMGS.length];
+        ctx.save();
+        ctx.translate(g.x, g.y + fl);
+        if (si.complete && si.naturalWidth > 0) {
+          ctx.imageSmoothingEnabled = false;
+          ctx.shadowColor = gm.c; ctx.shadowBlur = 14;
+          ctx.drawImage(si, -11, -13, 22, 24);
+        } else {
+          ctx.fillStyle = '#d8c9a0'; ctx.fillRect(-7, -9, 14, 18);
+        }
+        ctx.restore();
+        ctx.textAlign = 'center'; ctx.font = 'bold 12px serif';
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.lineWidth = 3;
+        ctx.strokeText(gm.n, g.x, g.y - 20);
+        ctx.fillStyle = gm.c; ctx.fillText(gm.n, g.x, g.y - 20);
+        continue;
+      }
       const pi = ITEM_IMG.potion;
       if (pi.complete && pi.naturalWidth > 0) {
         ctx.save();
