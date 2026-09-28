@@ -174,6 +174,15 @@ const sfx = {
 
 /* ================= 背景音乐：中式古典（五声音阶 · 古筝与笛箫，实时生成） ================= */
 const BGM = { playing: false, timer: null, nextT: 0, step: 0, bpm: 76 };
+// 六首曲目（每 50 关换一首）：主奏 / 拨弦 / 中声部 / 钟 · 速度各异
+const SONGS = [
+  { bpm: 76, lead: ['flute', ['A4', 'D5', 'E5', 'G5']],            pluck: ['koto', ['A3', 'D4', 'E4', 'G4']],            mid: ['violin', ['A3', 'C4', 'E4']],        bell: ['bells', ['C4', 'E4', 'G4']] },   // 灵谷晨曲
+  { bpm: 72, lead: ['celesta', ['A4', 'C5', 'E5', 'G5']],          pluck: ['harp', ['A3', 'C4', 'D4', 'E4', 'G4']],      mid: ['choir', ['A3', 'C4', 'E4', 'G4']],   bell: ['bells', ['C4', 'E4', 'G4']] },   // 仙音缥缈
+  { bpm: 92, lead: ['koto', ['A3', 'D4', 'E4', 'G4']],             pluck: ['shamisen', ['A3', 'C4', 'D4', 'E4', 'G4']],  mid: ['violin', ['A3', 'C4', 'E4']],        bell: ['bells', ['C4', 'E4', 'G4']] },   // 百妖夜行
+  { bpm: 70, lead: ['music_box', ['A4', 'C5', 'D5', 'E5', 'G5']],  pluck: ['harp', ['A3', 'C4', 'D4', 'E4', 'G4']],      mid: ['flute', ['A4', 'D5', 'E5', 'G5']],   bell: ['celesta', ['A4', 'C5', 'E5', 'G5']] }, // 幽篁独坐
+  { bpm: 78, lead: ['violin', ['A3', 'C4', 'E4', 'G4']],           pluck: ['harpsichord', ['A3', 'C4', 'D4', 'E4', 'G4']], mid: ['choir', ['A3', 'C4', 'E4', 'G4']], bell: ['bells', ['C4', 'E4', 'G4']] }, // 镇妖古调
+  { bpm: 84, lead: ['choir', ['A3', 'C4', 'E4', 'G4']],            pluck: ['harp', ['A3', 'C4', 'D4', 'E4', 'G4']],      mid: ['violin', ['A3', 'C4', 'E4']],        bell: ['bells', ['C4', 'E4', 'G4']] },   // 天外天
+];
 const PENT = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24];      // 宫调五声音阶
 const PENT_MIN = [0, 2, 3, 7, 8, 12, 14, 15, 19, 20, 24];  // 羽调式（BOSS 战）
 const PHRASES = [
@@ -193,24 +202,27 @@ function bgmStart() {
 // 采样缓存（开源乐器采样：MusyngKite / FluidR3 系列音色库）
 const SAMP_BUF = {};
 let SAMP_STARTED = false;
+const KOTO = ['A3', 'D4', 'E4', 'G4'];
+const FLUTE = ['A4', 'D5', 'E5', 'G5'];
+const VIOLIN = ['A3', 'C4', 'E4'];
+const BELLS = ['C4', 'E4', 'G4'];
 function loadSamples() {
   if (SAMP_STARTED) return;
   SAMP_STARTED = true;
   const a = ac(); if (!a) return;
-  const NEED = {
-    koto: ['A3', 'D4', 'E4', 'G4'],
-    flute: ['A4', 'D5', 'E5', 'G5'],
-    violin: ['A3', 'C4', 'E4'],
-    bells: ['C4', 'E4', 'G4'],
-  };
-  Object.entries(NEED).forEach(([inst, arr]) => arr.forEach(note => {
-    const key = inst + '_' + note;
+  const set = new Set();
+  SONGS.forEach(function (sg) {
+    [sg.lead, sg.pluck, sg.mid, sg.bell].forEach(function (pc) {
+      pc[1].forEach(function (n) { set.add(pc[0] + '_' + n); });
+    });
+  });
+  set.forEach(function (key) {
     fetch('assets/samples/' + key + '.mp3')
-      .then(r => r.arrayBuffer())
-      .then(b => a.decodeAudioData(b))
-      .then(buf => { SAMP_BUF[key] = buf; })
-      .catch(() => {});
-  }));
+      .then(function (r) { return r.arrayBuffer(); })
+      .then(function (b) { return a.decodeAudioData(b); })
+      .then(function (buf) { SAMP_BUF[key] = buf; })
+      .catch(function () { });
+  });
 }
 function playSample(inst, note, t, rate, vol) {
   const a = ac();
@@ -225,10 +237,6 @@ function playSample(inst, note, t, rate, vol) {
   s.start(t); s.stop(t + Math.min((buf.duration || 1) / rate, 3));
   return true;
 }
-const KOTO = ['A3', 'D4', 'E4', 'G4'];
-const FLUTE = ['A4', 'D5', 'E5', 'G5'];
-const VIOLIN = ['A3', 'C4', 'E4'];
-const BELLS = ['C4', 'E4', 'G4'];
 function bgmTick() {
   const a = ac(); if (!a || muted) return;
   const sp = 60 / BGM.bpm / 2; // 八分音符
@@ -257,30 +265,35 @@ function bgmNote(freq, t, dur, type, vol, vib) {
 function bgmStep(step, t, sp) {
   const inBattle = window.G && (G.state === 'playing' || G.state === 'levelup');
   const bossFight = inBattle && G.boss && G.boss.dying < 0;
+  const song = SONGS[Math.min(SONGS.length - 1, Math.floor((Math.max(1, window.G ? G.level : 1) - 1) / 50))];
+  BGM.bpm = song.bpm;
   const sc = bossFight ? PENT_MIN : PENT;
   const bar = Math.floor(step / 8) % 4, pos = step % 8;
   const rootI = [0, 3, 2, 4][bar];
   const rootF = 293.66 * Math.pow(2, sc[rootI] / 12);
-  // 古筝：分解拨弦（真实乐器采样优先，合成兜底）
+  // 拨弦（筝/竖琴/三味线/羽管键琴，随章节）
   if (pos % 2 === 0) {
-    const ni = [0, 2, 3, 1][(pos / 2) % 4];
-    if (!playSample('koto', KOTO[ni], t, 1, 0.16))
-      bgmNote(rootF * Math.pow(2, sc[[0, 2, 4, 3][pos / 2 % 4]] / 12), t, sp * 1.6, 'triangle', 0.075, false);
+    const [pi, pn] = song.pluck;
+    if (!playSample(pi, pn[(pos / 2 + rootI) % pn.length], t, 1, 0.17))
+      bgmNote(rootF, t, sp * 1.6, 'triangle', 0.075, false);
   }
-  // 笛箫：乐句旋律
+  // 主奏旋律（笛/钟琴/八音盒/合唱，随章节）
   const ph = PHRASES[Math.floor(step / 32) % PHRASES.length][pos];
   if (ph >= 0 && Math.floor(step / 8) % 2 === 1) {
-    if (!playSample('flute', FLUTE[ph % FLUTE.length], t, 2, 0.1))
+    const [li, ln] = song.lead;
+    if (!playSample(li, ln[ph % ln.length], t, 2, 0.1))
       bgmNote(293.66 * 2 * Math.pow(2, sc[(rootI + ph) % sc.length] / 12), t, sp * 2.2, 'sine', 0.065, true);
   }
-  // 二胡：长音中声部
+  // 中声部（二胡/合唱/长笛）
   if (step % 16 === 8) {
-    if (!playSample('violin', VIOLIN[rootI % VIOLIN.length], t, 1, 0.08))
+    const [mi, mn] = song.mid;
+    if (!playSample(mi, mn[rootI % mn.length], t, 1, 0.08))
       bgmNote(rootF * 1.5, t, sp * 13, 'triangle', 0.04, true);
   }
   // 编钟：段落起钟
   if (step % 32 === 0) {
-    if (!playSample('bells', BELLS[bar % BELLS.length], t, 1, 0.085)) {
+    const [bi2, bn] = song.bell;
+    if (!playSample(bi2, bn[bar % bn.length], t, 1, 0.085)) {
       const bf = rootF * 3;
       bgmNote(bf, t, sp * 10, 'sine', 0.045, false);
       bgmNote(bf * 2.76, t, sp * 6, 'sine', 0.02, false);
@@ -335,15 +348,25 @@ Object.keys(MONSTERS).forEach(t => {
   im.src = 'assets/mon/' + t + '.png';
   MON_IMG[t] = im;
 });
+const PLAYER_IMG = {};
+['t1', 't2', 't3', 't4'].forEach(k => {
+  const im = new Image();
+  im.src = 'assets/player/' + k + '.png';
+  PLAYER_IMG[k] = im;
+});
 const BOSS_IMG = {};
 ['king', 'queen', 'ninehead', 'centipede', 'zhulong', 'qiongqi', 'taowu', 'taotie'].forEach(k => {
   const im = new Image();
   im.src = 'assets/boss/' + k + '.png';
   BOSS_IMG[k] = im;
 });
-const ITEM_IMG = { potion: new Image(), floor: new Image() };
+const ITEM_IMG = { potion: new Image() };
 ITEM_IMG.potion.src = 'assets/item/potion_bubbly.png';
-ITEM_IMG.floor.src = 'assets/bg/floor_dark.png';
+const BG_FLOORS = ['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9', 'b10', 'b11', 'b12', 'b13'].map(k => {
+  const im = new Image();
+  im.src = 'assets/bg2/' + k + '.png';
+  return im;
+});
 
 /* ================= 数据：十关配置 ================= */
 const LEVELS = [
@@ -1533,8 +1556,9 @@ function bossHurt(b, dmg, ang, knock, canCrit) {
 function drawBG() {
   ctx.fillStyle = '#131019';
   ctx.fillRect(0, 0, W, H);
-  // 开源地城石砖（低透明平铺，随镜头对齐）
-  const fl = ITEM_IMG.floor;
+  // 主题地砖（开源 DCSS 地板，每 10 关更换）
+  const band = Math.floor((G.level - 1) / 10);
+  const fl = BG_FLOORS[band % BG_FLOORS.length];
   if (fl.complete && fl.naturalWidth > 0) {
     const ts = 64;
     ctx.globalAlpha = 0.17;
@@ -1723,37 +1747,34 @@ function drawPlayer(p) {
   }
   // 背负灵剑（二阶以上）
   if (tier >= 2) drawSword(-7, -6, -2.3, 30, 0.25);
-  // 道袍（三阶换月白，四阶金纹）
-  ctx.fillStyle = tier >= 3 ? '#e8eef9' : '#3f6db8';
-  ctx.beginPath();
-  ctx.moveTo(-11, 14); ctx.quadraticCurveTo(-13, -2, -8, -10);
-  ctx.lineTo(8, -10); ctx.quadraticCurveTo(13, -2, 11, 14);
-  ctx.closePath(); ctx.fill();
-  // 衣摆纹
-  ctx.strokeStyle = tier >= 3 ? 'rgba(80,120,190,0.7)' : 'rgba(220,235,255,0.5)'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.moveTo(-9, 12); ctx.lineTo(-11, 2); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(9, 12); ctx.lineTo(11, 2); ctx.stroke();
-  // 金纹滚边（四阶）
-  if (tier >= 4) {
-    ctx.strokeStyle = 'rgba(240,200,110,0.95)'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(-11, 14); ctx.quadraticCurveTo(-13, -2, -8, -10); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(11, 14); ctx.quadraticCurveTo(13, -2, 8, -10); ctx.stroke();
+  // 修士贴图（开源人形贴图 · 四阶进化：灵溪仙子/林间仙者/鬼修/半神）
+  const pi = PLAYER_IMG['t' + tier];
+  if (pi && pi.complete && pi.naturalWidth > 0) {
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(pi, -15, -27, 30, 33);
+    ctx.imageSmoothingEnabled = true;
+  } else {
+    // 道袍（三阶换月白，四阶金纹）
+    ctx.fillStyle = tier >= 3 ? '#e8eef9' : '#3f6db8';
+    ctx.beginPath();
+    ctx.moveTo(-11, 14); ctx.quadraticCurveTo(-13, -2, -8, -10);
+    ctx.lineTo(8, -10); ctx.quadraticCurveTo(13, -2, 11, 14);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = tier >= 3 ? 'rgba(80,120,190,0.7)' : 'rgba(220,235,255,0.5)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(-9, 12); ctx.lineTo(-11, 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(9, 12); ctx.lineTo(11, 2); ctx.stroke();
+    ctx.fillStyle = tier >= 2 ? '#f0c860' : '#d8b24a'; ctx.fillRect(-10, 1, 20, 3);
+    ctx.fillStyle = '#f5d7b0';
+    ctx.beginPath(); ctx.arc(0, -16, 8.5, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#22202a';
+    ctx.beginPath(); ctx.arc(0, -21, 8.5, Math.PI, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(2, -26, 3.5, 0, TAU); ctx.fill();
+    ctx.strokeStyle = tier >= 3 ? '#ffe9ad' : '#d8b24a'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(-6, -25); ctx.lineTo(8, -28); ctx.stroke();
+    ctx.fillStyle = '#22202a';
+    ctx.beginPath(); ctx.arc(4, -15, 1.3, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(-2, -15, 1.3, 0, TAU); ctx.fill();
   }
-  // 腰带
-  ctx.fillStyle = tier >= 2 ? '#f0c860' : '#d8b24a'; ctx.fillRect(-10, 1, 20, 3);
-  // 头
-  ctx.fillStyle = '#f5d7b0';
-  ctx.beginPath(); ctx.arc(0, -16, 8.5, 0, TAU); ctx.fill();
-  // 发髻
-  ctx.fillStyle = '#22202a';
-  ctx.beginPath(); ctx.arc(0, -21, 8.5, Math.PI, TAU); ctx.fill();
-  ctx.beginPath(); ctx.arc(2, -26, 3.5, 0, TAU); ctx.fill();
-  ctx.strokeStyle = tier >= 3 ? '#ffe9ad' : '#d8b24a'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.moveTo(-6, -25); ctx.lineTo(8, -28); ctx.stroke();
-  // 眼睛
-  ctx.fillStyle = '#22202a';
-  ctx.beginPath(); ctx.arc(4, -15, 1.3, 0, TAU); ctx.fill();
-  ctx.beginPath(); ctx.arc(-2, -15, 1.3, 0, TAU); ctx.fill();
   // 剑仙光环（四阶）
   if (tier >= 4) {
     ctx.strokeStyle = 'rgba(255,224,130,0.9)'; ctx.lineWidth = 2;
