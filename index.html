@@ -381,6 +381,69 @@ const GRADE_META = [
   { n: 'B', c: '#7ab0e8' }, { n: 'A', c: '#7ac74f' }, { n: 'S', c: '#ffd860' },
   { n: 'SS', c: '#c060ff' }, { n: 'SSS', c: '#ff5050' },
 ];
+// BOSS 掉落技能池（随机掉落，品阶随章节 B/A/S/SS/SSS）
+const SKILL_POOL = {
+  split:   { name: '分裂剑意', icon: 'sk_split' },
+  charge:  { name: '魔君冲撞', icon: 'sk_charge',  cd: [12, 11, 10, 9, 8] },
+  web:     { name: '蛛网领域', icon: 'sk_web',    cd: [14, 13, 12, 11, 10] },
+  ring:    { name: '九婴毒环', icon: 'sk_ring',   cd: [9, 8, 7, 6, 5] },
+  nova:    { name: '千足绞杀', icon: 'sk_nova',   cd: [13, 12, 11, 10, 9] },
+  thunder: { name: '天雷引',   icon: 'sk_thunder', cd: [8, 7, 6, 5, 4] },
+};
+function castSkill(type, g) {
+  const p = G.player, dm = p.dmgMul;
+  if (type === 'charge') {
+    let best = null, bd = 1e9;
+    for (const e of G.monsters) { if (e.hp <= 0) continue; const d2v = dist2(e.x, e.y, p.x, p.y); if (d2v < bd) { bd = d2v; best = e; } }
+    const a = best ? Math.atan2(best.y - p.y, best.x - p.x) : rand(TAU);
+    G.flies.push({ x: p.x, y: p.y + 12, ang: a, speed: 820, traveled: 0, phase: 'out',
+      len: 150 + g * 22, dmg: [46, 74, 110, 158, 220][g] * dm, trail: [], scale: 1,
+      age: 0, backAt: 0.85, bossCd: 0.35 });
+    addRing(p.x, p.y + 12, 10, 40, 'rgba(255,150,80,0.85)');
+    shake(3, 0.2); tone(320, 0.2, 'sawtooth', 0.1, 100);
+  } else if (type === 'web') {
+    const R = 720; let n = 0;
+    for (const e of G.monsters) {
+      if (e.hp <= 0) continue;
+      if (dist2(e.x, e.y, p.x, p.y) < R * R) {
+        e.slowT = Math.max(e.slowT || 0, [1.6, 2, 2.4, 2.8, 3.2][g]);
+        hurtEnemy(e, [8, 13, 20, 30, 44][g] * dm, rand(TAU), 40, false);
+        burst(e.x, e.y, '#e8e0f8', 5, 70); n++;
+      }
+    }
+    addRing(p.x, p.y, 40, R, 'rgba(230,220,250,0.7)');
+    tone(240, 0.2, 'sine', 0.06, 60);
+  } else if (type === 'ring') {
+    const n = [10, 13, 16, 20, 24][g];
+    for (let k2 = 0; k2 < n; k2++) {
+      G.pbolts.push({ x: p.x, y: p.y, ang: k2 / n * TAU + rand(-0.05, 0.05), speed: 300,
+        dmg: [16, 26, 40, 58, 82][g] * dm, t: 0, life: 1.5, r: 5, color: '#8de86a' });
+    }
+    tone(520, 0.15, 'sawtooth', 0.07, -80);
+  } else if (type === 'nova') {
+    const R = [180, 215, 255, 300, 350][g];
+    addRing(p.x, p.y, 30, R, 'rgba(255,180,80,0.9)');
+    shake(4, 0.25);
+    for (const e of G.monsters) {
+      if (e.hp > 0 && dist2(e.x, e.y, p.x, p.y) < R * R)
+        hurtEnemy(e, [40, 62, 92, 130, 180][g] * dm, Math.atan2(e.y - p.y, e.x - p.x), 380, false);
+    }
+    if (G.boss && G.boss.dying < 0 && dist2(G.boss.x, G.boss.y, p.x, p.y) < R * R)
+      bossHurt(G.boss, [40, 62, 92, 130, 180][g] * dm, rand(TAU), 0, false);
+    for (let i = 0; i < 24; i++) { const aa = rand(TAU); burst(p.x + Math.cos(aa) * R * 0.8, p.y + Math.sin(aa) * R * 0.8, '#ffb050', 2, 120); }
+    tone(140, 0.25, 'sawtooth', 0.12, 80);
+  } else if (type === 'thunder') {
+    const n = [2, 3, 4, 5, 6][g];
+    const tg = G.monsters.filter(e => e.hp > 0 && dist2(e.x, e.y, p.x, p.y) < 620 * 620)
+      .sort((a2, b2) => dist2(a2.x, a2.y, p.x, p.y) - dist2(b2.x, b2.y, p.x, p.y)).slice(0, n);
+    for (const e of tg) {
+      hurtEnemy(e, [30, 45, 66, 92, 125][g] * dm, rand(TAU), 60, false);
+      G.strikes.push({ x: e.x, y: e.y, t: 0, jag: [rand(-16, 16), rand(-16, 16), rand(-16, 16), rand(-16, 16)] });
+      burst(e.x, e.y, '#cfe8ff', 12, 200);
+    }
+    if (tg.length) { tone(1100, 0.12, 'square', 0.06, -200); shake(2, 0.15); }
+  }
+}
 const SCROLL_IMGS = ['scroll-blue', 'scroll-green', 'scroll-cyan', 'scroll-brown', 'scroll-grey'].map(f => {
   const im = new Image();
   im.src = 'assets/item/' + f + '.png';
@@ -573,7 +636,7 @@ const G = {
   time: 0, kills: 0, killsThisLevel: 0, clearT: -1, introT: 0,
   player: null, snapshot: null,
   monsters: [], flies: [], orbs: [], pickups: [], parts: [], floats: [], eprojectiles: [], slashes: [], rings: [], hitStop: 0,
-  boss: null, pet: null, pbolts: [], zones: [], spawnT: 1, burstT: 14, shakeT: 0, shakeMag: 0, camX: 0, camY: 0, t: 0,
+  boss: null, pet: null, pbolts: [], zones: [], skills: {}, strikes: [], spawnT: 1, burstT: 14, shakeT: 0, shakeMag: 0, camX: 0, camY: 0, t: 0,
 };
 function shake(m, t) { G.shakeMag = Math.max(G.shakeMag, m * 0.22); G.shakeT = Math.max(G.shakeT, t * 0.8); } // 幅度再降（约为原始 22%），轻震不晃眼
 
@@ -600,7 +663,7 @@ function startLevel(lv, freshPlayer) {
   G.time = 0; G.kills = 0; G.killsThisLevel = 0; G.clearT = -1; G.introT = 2.6;
   G.monsters = []; G.flies = []; G.orbs = []; G.pickups = []; G.parts = []; G.floats = []; G.eprojectiles = [];
   G.slashes = []; G.rings = []; G.hitStop = 0;
-  G.boss = null; G.pbolts = []; G.zones = []; G.spawnT = 0.35; G.burstT = rand(8, 12);
+  G.boss = null; G.pbolts = []; G.zones = []; G.strikes = []; G.spawnT = 0.35; G.burstT = rand(8, 12);
   G.pet = lv >= 100 ? (G.pet || newPet()) : null;
   G.petMsg = lv === 100 ? 4 : 0;
   const stgNow = Math.min(51, Math.floor((lv - 1) / 10));
@@ -796,10 +859,12 @@ function updateBoss(dt) {
     } else if (!b.dead) {
       b.dead = true;
       if (b.kind === 'king' || b.kind === 'ninehead' || b.kind === 'queen') { burst(b.x, b.y, b.kind === 'king' ? '#c060ff' : b.kind === 'queen' ? '#a878e8' : '#a0d060', 60); shake(14, 0.8); }
-      // BOSS 掉落技能卷轴（品阶随章节：B/A/S/SS/SSS）
+      // BOSS 掉落技能卷轴：随机一系，品阶随章节 B/A/S/SS/SSS
+      const poolKeys = Object.keys(SKILL_POOL);
+      const stype = poolKeys[Math.floor(rand(poolKeys.length))];
       const gdrop = G.level >= 501 ? 4 : Math.floor((G.level - 1) / 5) % 4;
-      G.pickups.push({ x: b.x, y: b.y, kind: 'scroll', grade: gdrop, t: 0 });
-      addFloat(b.x, b.y - b.r - 34, '技能卷轴掉落！', GRADE_META[gdrop].c, 18);
+      G.pickups.push({ x: b.x, y: b.y, kind: 'scroll', grade: gdrop, stype, t: 0 });
+      addFloat(b.x, b.y - b.r - 34, '「' + SKILL_POOL[stype].name + '」卷轴掉落！', GRADE_META[gdrop].c, 18);
       checkClear();
     }
     return;
@@ -1453,6 +1518,7 @@ function update(dt) {
       default:
         vx = Math.cos(ang) * e.speed; vy = Math.sin(ang) * e.speed;
     }
+    if (e.slowT > 0) { vx *= 0.45; vy *= 0.45; }
     e.x += vx * dt + e.kx * dt;
     e.y += vy * dt + e.ky * dt;
     e.x = clamp(e.x, 12, WORLD.w - 12);
@@ -1542,6 +1608,24 @@ function update(dt) {
     if (hit) G.pbolts.splice(i, 1);
   }
 
+  // BOSS 技能自动施放
+  for (const k2 in G.skills) {
+    const sk = G.skills[k2];
+    sk.cd = (sk.cd === undefined ? 0.6 : sk.cd) - dt;
+    if (sk.cd <= 0 && (G.monsters.length > 0 || G.boss)) {
+      const D = SKILL_POOL[k2];
+      sk.cd = D.cd[Math.min(D.cd.length - 1, sk.grade)] * (sk.cdm || 1);
+      castSkill(k2, sk.grade);
+    }
+  }
+  // 蛛网减速衰减
+  for (const e of G.monsters) e.slowT = Math.max(0, (e.slowT || 0) - dt);
+  // 天雷引视觉
+  for (let i = G.strikes.length - 1; i >= 0; i--) {
+    const st = G.strikes[i];
+    st.t += dt;
+    if (st.t > 0.25) G.strikes.splice(i, 1);
+  }
   // 梼杌地刺领域
   for (let i = G.zones.length - 1; i >= 0; i--) {
     const z = G.zones[i];
@@ -1585,15 +1669,29 @@ function update(dt) {
       if (dd < 26) {
         G.pickups.splice(i, 1);
         const gm = GRADE_META[g.grade];
-        if (p.splitGrade < 0) {
-          p.splitGrade = g.grade; p.splitBonus = 0;
-          addFloat(p.x, p.y - 46, '获得「分裂剑意」·' + gm.n + '级！', gm.c, 20);
-        } else if (g.grade > p.splitGrade) {
-          p.splitGrade = g.grade;
-          addFloat(p.x, p.y - 46, '分裂剑意 升至 ' + gm.n + ' 级！', gm.c, 20);
+        if (g.stype === 'split') {
+          if (p.splitGrade < 0) {
+            p.splitGrade = g.grade; p.splitBonus = 0;
+            addFloat(p.x, p.y - 46, '获得「分裂剑意」·' + gm.n + '级！', gm.c, 20);
+          } else if (g.grade > p.splitGrade) {
+            p.splitGrade = g.grade;
+            addFloat(p.x, p.y - 46, '分裂剑意 升至 ' + gm.n + ' 级！', gm.c, 20);
+          } else {
+            p.splitBonus = Math.min(2, (p.splitBonus || 0) + 1);
+            addFloat(p.x, p.y - 46, '分裂之剑 +1！', gm.c, 18);
+          }
         } else {
-          p.splitBonus = Math.min(2, (p.splitBonus || 0) + 1);
-          addFloat(p.x, p.y - 46, '分裂之剑 +1！', gm.c, 18);
+          const sk = G.skills[g.stype];
+          if (!sk) {
+            G.skills[g.stype] = { grade: g.grade, cd: 0.6, cdm: 1 };
+            addFloat(p.x, p.y - 46, '获得「' + SKILL_POOL[g.stype].name + '」·' + gm.n + '级！', gm.c, 20);
+          } else if (g.grade > sk.grade) {
+            sk.grade = g.grade;
+            addFloat(p.x, p.y - 46, SKILL_POOL[g.stype].name + ' 升至 ' + gm.n + ' 级！', gm.c, 20);
+          } else {
+            sk.cdm = Math.max(0.6, (sk.cdm || 1) * 0.85);
+            addFloat(p.x, p.y - 46, SKILL_POOL[g.stype].name + ' 精修！', gm.c, 18);
+          }
         }
         burst(p.x, p.y, gm.c, 26, 240);
         sfx.levelup();
@@ -2700,6 +2798,31 @@ function drawHUD() {
     ctx.fillText(fmtTime(G.time), W - 10, 62);
     var mw2 = Math.min(118, W * 0.3), mh2 = Math.round(mw2 * WORLD.h / WORLD.w), mx0 = W - 10 - mw2, my0 = 78;
   }
+  // BOSS 技能栏（已获技能 · 冷却遮罩 · 品阶描边）
+  const skk = Object.keys(G.skills);
+  if (skk.length) {
+    const sw = 24, gap = 6;
+    let sx2 = W / 2 - (skk.length * sw + (skk.length - 1) * gap) / 2;
+    const sy2 = narrow ? 44 : 48;
+    for (const k2 of skk) {
+      const sk = G.skills[k2], D = SKILL_POOL[k2], gm = GRADE_META[sk.grade];
+      const im = ICON_IMG[D.icon];
+      ctx.fillStyle = 'rgba(10,8,18,0.66)';
+      ctx.beginPath(); ctx.roundRect(sx2, sy2, sw, sw, 5); ctx.fill();
+      ctx.strokeStyle = gm.c; ctx.lineWidth = 1; ctx.stroke();
+      if (im && im.complete && im.naturalWidth > 0) {
+        ctx.save();
+        ctx.beginPath(); ctx.rect(sx2 + 2, sy2 + 2, sw - 4, sw - 4); ctx.clip();
+        ctx.drawImage(im, sx2 + 3, sy2 + 3, sw - 6, sw - 6);
+        const cdf = clamp(sk.cd / Math.max(0.1, D.cd[Math.min(sk.grade, D.cd.length - 1)] * (sk.cdm || 1)), 0, 1);
+        if (cdf > 0) { ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(sx2 + 2, sy2 + 2 + (sw - 4) * (1 - cdf), sw - 4, (sw - 4) * cdf); }
+        ctx.restore();
+      }
+      ctx.fillStyle = gm.c; ctx.font = 'bold 10px serif'; ctx.textAlign = 'center';
+      ctx.fillText(gm.n, sx2 + sw / 2, sy2 + sw - 3);
+      sx2 += sw + gap;
+    }
+  }
   // 小地图
   const k2 = mw2 / WORLD.w;
   ctx.fillStyle = 'rgba(8,6,14,0.66)';
@@ -2921,10 +3044,10 @@ function frame(now) {
     // 灵宠与灵弹
     if (G.pet) drawPet(G.pet);
     for (const q of G.pbolts) {
-      ctx.fillStyle = 'rgba(127,224,255,0.9)';
-      ctx.beginPath(); ctx.arc(q.x, q.y, 3.5, 0, TAU); ctx.fill();
-      ctx.fillStyle = 'rgba(200,240,255,0.9)';
-      ctx.beginPath(); ctx.arc(q.x, q.y, 1.6, 0, TAU); ctx.fill();
+      ctx.fillStyle = q.color || 'rgba(127,224,255,0.9)';
+      ctx.beginPath(); ctx.arc(q.x, q.y, q.r || 3.5, 0, TAU); ctx.fill();
+      ctx.fillStyle = 'rgba(240,252,255,0.9)';
+      ctx.beginPath(); ctx.arc(q.x, q.y, (q.r || 3.5) * 0.45, 0, TAU); ctx.fill();
     }
     // 环绕飞剑（带残影与流光）
     const p = G.player, orb = p.orbit, slen = orb.len * p.sizeMul;
