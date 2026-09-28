@@ -791,6 +791,19 @@ function updateBoss(dt) {
     return;
   }
   b.t += dt; b.flash = Math.max(0, b.flash - dt);
+  // 狂暴：血量 30% 以下提速强化（拉扯走位）
+  if (!b.enraged && b.hp < b.maxHp * 0.3 && b.dying < 0) {
+    b.enraged = true;
+    b.speed *= 1.38;
+    if (b.chaseEvery) b.chaseEvery *= 0.55;
+    if (b.webT !== undefined) b.webT = Math.min(b.webT, 0.8);
+    if (b.ringT !== undefined) b.ringT = Math.min(b.ringT, 0.6);
+    if (b.spikeT !== undefined) b.spikeT = Math.min(b.spikeT, 0.4);
+    if (b.turn) b.turn *= 1.5;
+    addFloat(b.x, b.y - b.r - 26, '狂暴！', '#ff5050', 24);
+    burst(b.x, b.y, '#ff5050', 30, 260);
+    shake(6, 0.4); sfx.boss();
+  }
   const angTo = Math.atan2(p.y - b.y, p.x - b.x);
   if (b.kind === 'centipede') {
     let da = angTo - b.ang;
@@ -1215,6 +1228,7 @@ function update(dt) {
   // 飞剑更新
   for (let i = G.flies.length - 1; i >= 0; i--) {
     const f = G.flies[i];
+    f.bossCd = Math.max(0, (f.bossCd || 0) - dt);
     if (f.phase === 'out') {
       // 出鞘：飞剑逐渐变大
       f.scale = Math.min(1, (f.scale || 1) + 4.5 * dt);
@@ -1263,13 +1277,14 @@ function update(dt) {
         hurtEnemy(e, f.dmg, f.ang, 240, true);
       }
     }
-    if (G.boss && G.boss.dying < 0) {
+    if (G.boss && G.boss.dying < 0 && (f.bossCd || 0) <= 0) {
       const b = G.boss;
       const pts = b.kind === 'centipede' ? [b, ...b.segs] : [b];
       for (const pt of pts) {
         const pr = pt === b ? b.r : 16;
         if (dist2(f.x, f.y, pt.x, pt.y) < (f.len * 0.22 + pr) * (f.len * 0.22 + pr)) {
           bossHurt(b, f.dmg, f.ang, 40, true);
+          f.bossCd = 0.3;
           break;
         }
       }
@@ -2497,6 +2512,11 @@ function drawBoss(b) {
   // 地面阴影
   ctx.fillStyle = 'rgba(0,0,0,0.45)';
   ctx.beginPath(); ctx.ellipse(b.x, b.y + b.r * 0.95, b.r, b.r * 0.3, 0, 0, TAU); ctx.fill();
+  // 狂暴红焰妖气
+  if (b.enraged) {
+    ctx.fillStyle = 'rgba(255,50,50,' + (0.12 + Math.sin(t * 7) * 0.06) + ')';
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 1.7, 0, TAU); ctx.fill();
+  }
   // BOSS 开源像素精灵
   if (hasImg) {
     const bs = b.r * 3.1;
