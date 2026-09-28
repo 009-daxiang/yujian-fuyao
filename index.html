@@ -188,7 +188,47 @@ function bgmStart() {
   BGM.playing = true;
   BGM.nextT = a.currentTime + 0.1;
   BGM.timer = setInterval(bgmTick, 120);
+  loadSamples();
 }
+// 采样缓存（开源乐器采样：MusyngKite / FluidR3 系列音色库）
+const SAMP_BUF = {};
+let SAMP_STARTED = false;
+function loadSamples() {
+  if (SAMP_STARTED) return;
+  SAMP_STARTED = true;
+  const a = ac(); if (!a) return;
+  const NEED = {
+    koto: ['A3', 'D4', 'E4', 'G4'],
+    flute: ['A4', 'D5', 'E5', 'G5'],
+    violin: ['A3', 'C4', 'E4'],
+    bells: ['C4', 'E4', 'G4'],
+  };
+  Object.entries(NEED).forEach(([inst, arr]) => arr.forEach(note => {
+    const key = inst + '_' + note;
+    fetch('assets/samples/' + key + '.mp3')
+      .then(r => r.arrayBuffer())
+      .then(b => a.decodeAudioData(b))
+      .then(buf => { SAMP_BUF[key] = buf; })
+      .catch(() => {});
+  }));
+}
+function playSample(inst, note, t, rate, vol) {
+  const a = ac();
+  const buf = SAMP_BUF[inst + '_' + note];
+  if (!buf) return false;
+  const s = a.createBufferSource();
+  s.buffer = buf; s.playbackRate.value = rate;
+  const g = a.createGain();
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(Math.max(0.001, vol * 0.3), t + 0.5);
+  s.connect(g); g.connect(a.destination);
+  s.start(t); s.stop(t + Math.min((buf.duration || 1) / rate, 3));
+  return true;
+}
+const KOTO = ['A3', 'D4', 'E4', 'G4'];
+const FLUTE = ['A4', 'D5', 'E5', 'G5'];
+const VIOLIN = ['A3', 'C4', 'E4'];
+const BELLS = ['C4', 'E4', 'G4'];
 function bgmTick() {
   const a = ac(); if (!a || muted) return;
   const sp = 60 / BGM.bpm / 2; // 八分音符
@@ -221,39 +261,37 @@ function bgmStep(step, t, sp) {
   const bar = Math.floor(step / 8) % 4, pos = step % 8;
   const rootI = [0, 3, 2, 4][bar];
   const rootF = 293.66 * Math.pow(2, sc[rootI] / 12);
-  // 古筝：每拍分解拨弦（双弦略失谐增厚）
+  // 古筝：分解拨弦（真实乐器采样优先，合成兜底）
   if (pos % 2 === 0) {
-    const f = rootF * Math.pow(2, sc[[0, 2, 4, 3][pos / 2 % 4]] / 12);
-    bgmNote(f, t, sp * 1.6, 'triangle', 0.075, false);
-    bgmNote(f * 2.003, t, sp * 1.2, 'triangle', 0.035, false);
+    const ni = [0, 2, 3, 1][(pos / 2) % 4];
+    if (!playSample('koto', KOTO[ni], t, 1, 0.16))
+      bgmNote(rootF * Math.pow(2, sc[[0, 2, 4, 3][pos / 2 % 4]] / 12), t, sp * 1.6, 'triangle', 0.075, false);
   }
-  // 笛箫：隔小节吹奏乐句（颤音）
+  // 笛箫：乐句旋律
   const ph = PHRASES[Math.floor(step / 32) % PHRASES.length][pos];
   if (ph >= 0 && Math.floor(step / 8) % 2 === 1) {
-    bgmNote(293.66 * 2 * Math.pow(2, sc[(rootI + ph) % sc.length] / 12), t, sp * 2.2, 'sine', 0.065, true);
+    if (!playSample('flute', FLUTE[ph % FLUTE.length], t, 2, 0.1))
+      bgmNote(293.66 * 2 * Math.pow(2, sc[(rootI + ph) % sc.length] / 12), t, sp * 2.2, 'sine', 0.065, true);
   }
-  // 琵琶：轮指（乐句尾快速重复高音）
-  if (pos === 6 && bar % 2 === 1) {
-    for (let i = 0; i < 4; i++) {
-      bgmNote(293.66 * 4 * Math.pow(2, sc[(rootI + 4 - i) % sc.length] / 12), t + i * sp * 0.22, sp * 0.28, 'triangle', 0.05, false);
+  // 二胡：长音中声部
+  if (step % 16 === 8) {
+    if (!playSample('violin', VIOLIN[rootI % VIOLIN.length], t, 1, 0.08))
+      bgmNote(rootF * 1.5, t, sp * 13, 'triangle', 0.04, true);
+  }
+  // 编钟：段落起钟
+  if (step % 32 === 0) {
+    if (!playSample('bells', BELLS[bar % BELLS.length], t, 1, 0.085)) {
+      const bf = rootF * 3;
+      bgmNote(bf, t, sp * 10, 'sine', 0.045, false);
+      bgmNote(bf * 2.76, t, sp * 6, 'sine', 0.02, false);
     }
   }
-  // 二胡：长音中声部（重颤音）
-  if (step % 16 === 8) {
-    bgmNote(293.66 * Math.pow(2, sc[(rootI + 2) % sc.length] / 12) * 1.5, t, sp * 13, 'triangle', 0.04, true);
-  }
-  // 编钟：段落起钟（双分音）
-  if (step % 32 === 0) {
-    const bf = 293.66 * Math.pow(2, sc[rootI] / 12) * 3;
-    bgmNote(bf, t, sp * 10, 'sine', 0.045, false);
-    bgmNote(bf * 2.76, t, sp * 6, 'sine', 0.02, false);
-  }
-  // 木鱼：战斗中的弱拍点
+  // 木鱼：战斗弱拍
   if (bossFight && (pos === 3 || pos === 7)) tone(900, 0.03, 'triangle', 0.025, -300);
-  // 低音铺底（每四小节）
-  if (step % 32 === 0) bgmNote(rootF / 2, t, sp * 30, 'sine', 0.05, false);
-  // BOSS 战低音鼓点
+  // BOSS 战低音鼓
   if (bossFight && pos % 4 === 0) tone(70, 0.12, 'sine', 0.09, -30);
+  // 低音垫
+  if (step % 32 === 0) bgmNote(rootF / 2, t, sp * 30, 'sine', 0.05, false);
 }
 
 /* ================= 画布 ================= */
@@ -290,13 +328,22 @@ const MONSTERS = {
   lantern: { name: '灯妖',   hp: 40,  speed: 44,  r: 15, dmg: 8,  xp: 7,  color: '#ff8830', emoji: '🏮' },
   jiao:    { name: '蛟妖',   hp: 190, speed: 84,  r: 20, dmg: 20, xp: 25, color: '#4a9ab0', emoji: '🐲', body: 'serpent' },
 };
-// 开源贴图预加载（Twemoji，CC-BY 4.0）
+// 开源贴图预加载（DCSS rltiles，CC0）
 const MON_IMG = {};
 Object.keys(MONSTERS).forEach(t => {
   const im = new Image();
-  im.src = 'assets/' + t + '.svg';
+  im.src = 'assets/mon/' + t + '.png';
   MON_IMG[t] = im;
 });
+const BOSS_IMG = {};
+['king', 'queen', 'ninehead', 'centipede', 'zhulong', 'qiongqi', 'taowu', 'taotie'].forEach(k => {
+  const im = new Image();
+  im.src = 'assets/boss/' + k + '.png';
+  BOSS_IMG[k] = im;
+});
+const ITEM_IMG = { potion: new Image(), floor: new Image() };
+ITEM_IMG.potion.src = 'assets/item/potion_bubbly.png';
+ITEM_IMG.floor.src = 'assets/bg/floor_dark.png';
 
 /* ================= 数据：十关配置 ================= */
 const LEVELS = [
@@ -1486,6 +1533,19 @@ function bossHurt(b, dmg, ang, knock, canCrit) {
 function drawBG() {
   ctx.fillStyle = '#131019';
   ctx.fillRect(0, 0, W, H);
+  // 开源地城石砖（低透明平铺，随镜头对齐）
+  const fl = ITEM_IMG.floor;
+  if (fl.complete && fl.naturalWidth > 0) {
+    const ts = 64;
+    ctx.globalAlpha = 0.17;
+    ctx.imageSmoothingEnabled = false;
+    const ox = -(((G.camX - W / 2) % ts) + ts) % ts, oy = -(((G.camY - H / 2) % ts) + ts) % ts;
+    for (let x = ox - ts; x < W + ts; x += ts)
+      for (let y = oy - ts; y < H + ts; y += ts)
+        ctx.drawImage(fl, x, y, ts, ts);
+    ctx.globalAlpha = 1;
+    ctx.imageSmoothingEnabled = true;
+  }
   const cell = 150;
   const cx0 = Math.floor((G.camX - W / 2) / cell) - 1, cx1 = Math.floor((G.camX + W / 2) / cell) + 1;
   const cy0 = Math.floor((G.camY - H / 2) / cell) - 1, cy1 = Math.floor((G.camY + H / 2) / cell) + 1;
@@ -1820,20 +1880,22 @@ function drawMonSprite(e) {
   const hasImg = img && img.complete && img.naturalWidth > 0;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   if (hasImg) {
+    ctx.imageSmoothingEnabled = false; // 像素风清晰放大
     // 3. 暗层剪影（厚度层次）
     ctx.save();
-    ctx.globalAlpha = 0.3;
+    ctx.globalAlpha = 0.32;
     ctx.filter = 'brightness(0)';
-    ctx.drawImage(img, -size / 2 + e.r * 0.12, -size / 2 + e.r * 0.18, size, size);
+    ctx.drawImage(img, -size / 2 + e.r * 0.14, -size / 2 + e.r * 0.2, size, size);
     ctx.restore();
     // 4. 主体贴图
     ctx.drawImage(img, -size / 2, -size / 2, size, size);
     // 5. 高光层
     ctx.save();
-    ctx.globalAlpha = 0.16;
-    ctx.filter = 'brightness(1.8)';
-    ctx.drawImage(img, -size / 2 - e.r * 0.06, -size / 2 - e.r * 0.1, size, size);
+    ctx.globalAlpha = 0.13;
+    ctx.filter = 'brightness(2)';
+    ctx.drawImage(img, -size / 2 - e.r * 0.05, -size / 2 - e.r * 0.08, size, size);
     ctx.restore();
+    ctx.imageSmoothingEnabled = true;
   } else {
     const fs = Math.round(e.r * 2.5);
     ctx.font = fs + 'px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
@@ -2300,354 +2362,67 @@ function drawBoss(b) {
   if (!b) return;
   const t = G.t;
   if (b.dying >= 0 && b.dying > 0.9) return;
+  const bi = BOSS_IMG[b.kind];
+  const hasImg = bi && bi.complete && bi.naturalWidth > 0;
   ctx.save();
   ctx.globalAlpha = b.dying >= 0 ? Math.max(0, 1 - b.dying) : 1;
-  if (b.kind === 'centipede') {
-    // 体节
-    for (let i = b.segs.length - 1; i >= 0; i--) {
-      const s = b.segs[i], sr = 19 - i * 0.6;
-      ctx.fillStyle = i % 2 ? '#4a8f3d' : '#3a7330';
-      ctx.beginPath(); ctx.arc(s.x, s.y, sr, 0, TAU); ctx.fill();
-      ctx.fillStyle = '#c04040';
-      ctx.beginPath(); ctx.arc(s.x, s.y, sr * 0.3, 0, TAU); ctx.fill();
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.beginPath(); ctx.ellipse(s.x, s.y + sr * 0.8, sr * 0.7, sr * 0.24, 0, 0, TAU); ctx.fill();
-    }
-    // 头
-    ctx.fillStyle = 'rgba(0,0,0,0.4)';
-    ctx.beginPath(); ctx.ellipse(b.x, b.y + 20, 22, 7, 0, 0, TAU); ctx.fill();
-    ctx.translate(b.x, b.y); ctx.rotate(b.ang);
-    ctx.fillStyle = '#5aa344';
-    ctx.beginPath(); ctx.ellipse(0, 0, 26, 20, 0, 0, TAU); ctx.fill();
-    // 颚
-    ctx.strokeStyle = '#c04040'; ctx.lineWidth = 4; ctx.lineCap = 'round';
-    const nip = Math.sin(t * 8) * 0.25;
-    for (const side of [-1, 1]) {
-      ctx.beginPath(); ctx.moveTo(16, side * 8);
-      ctx.quadraticCurveTo(32, side * (14 + nip * 10), 40, side * (4 + nip * 14));
-      ctx.stroke();
-    }
-    // 触角
-    ctx.strokeStyle = '#8fce6a'; ctx.lineWidth = 2.5;
-    for (const side of [-1, 1]) {
-      ctx.beginPath(); ctx.moveTo(8, side * 10);
-      ctx.quadraticCurveTo(26, side * 26, 40, side * (30 + Math.sin(t * 5) * 5));
-      ctx.stroke();
-    }
-    ctx.fillStyle = '#ffd54a';
-    ctx.beginPath(); ctx.arc(6, -7, 4, 0, TAU); ctx.fill();
-    ctx.beginPath(); ctx.arc(6, 7, 4, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#7a1010';
-    ctx.beginPath(); ctx.arc(6, -7, 2, 0, TAU); ctx.fill();
-    ctx.beginPath(); ctx.arc(6, 7, 2, 0, TAU); ctx.fill();
-  } else if (b.kind === 'queen') {
-    // 蛛后 · 千丝魔母
-    const bob = Math.sin(t * 2) * 3;
-    ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    ctx.beginPath(); ctx.ellipse(b.x, b.y + 34, 38, 10, 0, 0, TAU); ctx.fill();
-    ctx.translate(b.x, b.y + bob);
-    const flip = Math.cos(b.aim || 0) < 0 ? -1 : 1;
-    ctx.scale(flip, 1);
-    // 八足
-    ctx.strokeStyle = '#3a2a55'; ctx.lineWidth = 5; ctx.lineCap = 'round';
-    for (let i = 0; i < 4; i++) {
-      const wig = Math.sin(t * 3 + i) * 0.12;
-      for (const side of [-1, 1]) {
-        ctx.beginPath();
-        ctx.moveTo(side * 20, -6 + i * 6);
-        ctx.quadraticCurveTo(side * 70, -30 + wig * 20 - i * 4, side * 95, 20 + wig * 14);
-        ctx.stroke();
-      }
-    }
-    // 腹部
-    ctx.fillStyle = '#4a3570';
-    ctx.beginPath(); ctx.ellipse(-18, 6, 30, 26, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#7a5ab8';
-    ctx.beginPath();
-    ctx.moveTo(-48, 6); ctx.lineTo(-18, -12); ctx.lineTo(2, 6); ctx.lineTo(-18, 24);
-    ctx.closePath(); ctx.fill();
-    // 胸头
-    ctx.fillStyle = '#5b4488';
-    ctx.beginPath(); ctx.ellipse(10, 0, 19, 17, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#6b5298';
-    ctx.beginPath(); ctx.ellipse(23, -5, 13, 11, 0, 0, TAU); ctx.fill();
-    // 六眼
-    for (const [ex, ey] of [[0.55, -0.3], [0.75, -0.35], [0.9, -0.2], [0.55, -0.05], [0.75, 0], [0.9, 0.05]]) {
-      ctx.fillStyle = '#ff4040';
-      ctx.beginPath(); ctx.arc(ex * 30, ey * 30, 2.6, 0, TAU); ctx.fill();
-    }
-    // 螯肢
-    ctx.strokeStyle = '#d8c8f0'; ctx.lineWidth = 3;
-    for (const side of [-1, 1]) {
-      ctx.beginPath(); ctx.moveTo(30, side * 4);
-      ctx.quadraticCurveTo(42, side * (10 + Math.sin(t * 6) * 3), 46, side * 3);
-      ctx.stroke();
-    }
-    // 后冠
-    ctx.fillStyle = '#ffd860';
-    const qx = -14, qy = -38;
-    ctx.beginPath();
-    ctx.moveTo(qx - 14, qy + 10); ctx.lineTo(qx - 14, qy); ctx.lineTo(qx - 7, qy + 6);
-    ctx.lineTo(qx, qy - 4); ctx.lineTo(qx + 7, qy + 6); ctx.lineTo(qx + 14, qy); ctx.lineTo(qx + 14, qy + 10);
-    ctx.closePath(); ctx.fill();
-  } else if (b.kind === 'zhulong') {
-    // 烛龙：赤鳞蛇首 + 天烛独角
-    // 天烛光焰预警与射线
-    if (b.state === 'beamTel') {
-      ctx.strokeStyle = 'rgba(255,120,50,' + (0.25 + Math.sin(t * 18) * 0.15) + ')';
-      ctx.lineWidth = 8 + (b.t / 0.9) * 18;
-      ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x + Math.cos(b.aim) * 700, b.y + Math.sin(b.aim) * 700); ctx.stroke();
-    } else if (b.state === 'beam') {
-      const k = 1 - b.t / 0.7;
-      ctx.strokeStyle = 'rgba(255,150,60,0.9)';
-      ctx.lineWidth = 26 * k + 6;
-      ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x + Math.cos(b.aim) * 700, b.y + Math.sin(b.aim) * 700); ctx.stroke();
-      ctx.strokeStyle = 'rgba(255,240,200,0.95)';
-      ctx.lineWidth = 8 * k + 2;
-      ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x + Math.cos(b.aim) * 700, b.y + Math.sin(b.aim) * 700); ctx.stroke();
-    }
-    ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    ctx.beginPath(); ctx.ellipse(b.x, b.y + 38, 40, 11, 0, 0, TAU); ctx.fill();
-    ctx.translate(b.x, b.y);
-    ctx.scale(Math.cos(b.aim || 0) < 0 ? -1 : 1, 1);
-    // 鬃焰
-    for (let i = 0; i < 6; i++) {
-      const fa = Math.PI + i / 5 * Math.PI, fl2 = Math.sin(t * 8 + i) * 4;
-      ctx.fillStyle = 'rgba(255,110,40,' + (0.7 - i * 0.08) + ')';
-      ctx.beginPath();
-      ctx.moveTo(Math.cos(fa) * 30, Math.sin(fa) * 28);
-      ctx.lineTo(Math.cos(fa) * (52 + fl2), Math.sin(fa) * (46 + fl2) - 8);
-      ctx.lineTo(Math.cos(fa + 0.3) * 30, Math.sin(fa + 0.3) * 26);
-      ctx.fill();
-    }
-    // 蛇首
-    ctx.fillStyle = '#7a1f14';
-    ctx.beginPath(); ctx.ellipse(0, 0, 36, 28, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#a63520';
-    ctx.beginPath(); ctx.ellipse(12, 2, 24, 18, 0, 0, TAU); ctx.fill();
-    // 天烛角
-    ctx.strokeStyle = '#ffd8a0'; ctx.lineWidth = 5; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(-6, -24); ctx.quadraticCurveTo(2, -52, 20, -58); ctx.stroke();
-    ctx.fillStyle = '#ffb050';
-    ctx.beginPath(); ctx.arc(22, -58, 5 + Math.sin(t * 6) * 1.5, 0, TAU); ctx.fill();
-    // 凝视之眼
-    const eg = 0.7 + Math.sin(t * 7) * 0.3;
-    ctx.fillStyle = 'rgba(255,200,80,' + eg + ')';
-    ctx.beginPath(); ctx.ellipse(16, -6, 7, 4, b.aim, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#301008';
-    ctx.beginPath(); ctx.arc(18, -6, 2, 0, TAU); ctx.fill();
-  } else if (b.kind === 'qiongqi') {
-    // 穷奇：白翼虎兽
-    const bob = Math.sin(t * 3) * 4;
-    ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    ctx.beginPath(); ctx.ellipse(b.x, b.y + 34, 34, 9, 0, 0, TAU); ctx.fill();
-    ctx.translate(b.x, b.y + bob);
-    ctx.scale(Math.cos(b.aim || 0) < 0 ? -1 : 1, 1);
-    // 双翼
-    const flap = Math.sin(t * 9) * 0.5;
-    ctx.fillStyle = 'rgba(230,228,238,0.9)';
-    for (const side of [-1, 1]) {
-      ctx.beginPath();
-      ctx.moveTo(side * 8, -8);
-      ctx.quadraticCurveTo(side * 46, -34 - flap * 14, side * 62, -6 + flap * 10);
-      ctx.quadraticCurveTo(side * 40, 6, side * 8, 6);
-      ctx.fill();
-    }
-    // 虎躯
-    ctx.fillStyle = '#c8b478';
-    ctx.beginPath(); ctx.ellipse(0, 0, 30, 22, 0, 0, TAU); ctx.fill();
-    ctx.strokeStyle = '#6a5630'; ctx.lineWidth = 4;
-    for (let i = -1; i <= 1; i++) {
-      ctx.beginPath(); ctx.moveTo(i * 12 - 4, -14); ctx.lineTo(i * 12 + 4, 12); ctx.stroke();
-    }
-    // 虎首獠牙
-    ctx.fillStyle = '#d8c890';
-    ctx.beginPath(); ctx.arc(28, -4, 14, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#f5ecd8';
-    ctx.beginPath(); ctx.moveTo(24, 2); ctx.lineTo(27, 12); ctx.lineTo(31, 3); ctx.fill();
-    eyes(22, 33, -8, 3.5, 0, '#ff5050', '#301010');
-  } else if (b.kind === 'taowu') {
-    // 梼杌：黑棘凶兽
-    const bob = Math.sin(t * 2.4) * 3;
-    ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    ctx.beginPath(); ctx.ellipse(b.x, b.y + 34, 34, 9, 0, 0, TAU); ctx.fill();
-    ctx.translate(b.x, b.y + bob);
-    ctx.scale(Math.cos(b.aim || 0) < 0 ? -1 : 1, 1);
-    // 棘刺环
-    ctx.fillStyle = '#2a2338';
-    for (let i = 0; i < 10; i++) {
-      const sa = i / 10 * TAU + t * 0.4;
-      ctx.beginPath();
-      ctx.moveTo(Math.cos(sa) * 26, Math.sin(sa) * 22);
-      ctx.lineTo(Math.cos(sa) * 46, Math.sin(sa) * 38);
-      ctx.lineTo(Math.cos(sa + 0.3) * 26, Math.sin(sa + 0.3) * 22);
-      ctx.fill();
-    }
-    // 躯干
-    ctx.fillStyle = '#3a3050';
-    ctx.beginPath(); ctx.arc(0, 0, 28, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#4a3f66';
-    ctx.beginPath(); ctx.arc(-2, -2, 20, 0, TAU); ctx.fill();
-    // 凶目獠口
-    ctx.fillStyle = '#ff3050';
-    ctx.beginPath(); ctx.arc(-8, -6, 4, 0, TAU); ctx.fill();
-    ctx.beginPath(); ctx.arc(8, -6, 4, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#f5ecd8';
-    for (let i = 0; i < 4; i++) {
-      ctx.beginPath(); ctx.moveTo(-12 + i * 8, 8); ctx.lineTo(-8 + i * 8, 16); ctx.lineTo(-4 + i * 8, 8); ctx.fill();
-    }
-  } else if (b.kind === 'taotie') {
-    // 饕餮：巨口吞噬
-    const bob = Math.sin(t * 2) * 3;
-    ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    ctx.beginPath(); ctx.ellipse(b.x, b.y + 40, 40, 11, 0, 0, TAU); ctx.fill();
-    ctx.translate(b.x, b.y + bob);
-    ctx.scale(Math.cos(b.aim || 0) < 0 ? -1 : 1, 1);
-    // 双角小耳
-    ctx.strokeStyle = '#c9a0ff'; ctx.lineWidth = 6; ctx.lineCap = 'round';
-    for (const side of [-1, 1]) {
-      ctx.beginPath(); ctx.moveTo(side * 14, -34); ctx.quadraticCurveTo(side * 26, -52, side * 18, -60); ctx.stroke();
-    }
-    // 巨躯
-    ctx.fillStyle = '#5a3a20';
-    ctx.beginPath(); ctx.ellipse(0, 0, 40, 34, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#6f4c2c';
-    ctx.beginPath(); ctx.ellipse(0, 4, 32, 24, 0, 0, TAU); ctx.fill();
-    // 云纹
-    ctx.strokeStyle = 'rgba(220,180,120,0.5)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(-10, -12, 8, 0, Math.PI); ctx.stroke();
-    ctx.beginPath(); ctx.arc(12, -14, 6, 0, Math.PI); ctx.stroke();
-    // 巨口獠牙
-    const chew = Math.sin(t * 5) * 3;
-    ctx.fillStyle = '#1a0e06';
-    ctx.beginPath(); ctx.ellipse(4, 12, 22, 12 + chew, 0, 0, Math.PI); ctx.fill();
-    ctx.fillStyle = '#f5ecd8';
-    for (let i = 0; i < 5; i++) {
-      const tx0 = -12 + i * 10;
-      ctx.beginPath(); ctx.moveTo(tx0, 10 + chew * 0.4); ctx.lineTo(tx0 + 4, 20 + chew); ctx.lineTo(tx0 + 8, 10 + chew * 0.4); ctx.fill();
-    }
-    // 顶眼
-    ctx.fillStyle = '#ffd050';
-    ctx.beginPath(); ctx.arc(-10, -22, 4, 0, TAU); ctx.fill();
-    ctx.beginPath(); ctx.arc(12, -22, 4, 0, TAU); ctx.fill();
+  // 震地预警圈
+  if (b.state === 'slamTel') {
+    const sr = b.slamR || 170;
+    ctx.strokeStyle = 'rgba(255,70,70,' + (0.4 + Math.sin(t * 20) * 0.25) + ')';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(b.x, b.y, sr, 0, TAU); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,70,70,0.08)';
+    ctx.beginPath(); ctx.arc(b.x, b.y, sr, 0, TAU); ctx.fill();
+  }
+  // 冲锋预警线
+  if (b.state === 'chargeTel') {
+    ctx.strokeStyle = 'rgba(200,80,255,' + (0.35 + Math.sin(t * 18) * 0.2) + ')';
+    ctx.lineWidth = 22;
+    ctx.setLineDash([16, 14]);
+    ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x + Math.cos(b.aim) * 560, b.y + Math.sin(b.aim) * 560); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // 烛龙：天烛光焰预警与射线
+  if (b.kind === 'zhulong' && b.state === 'beamTel') {
+    ctx.strokeStyle = 'rgba(255,120,50,' + (0.25 + Math.sin(t * 18) * 0.15) + ')';
+    ctx.lineWidth = 8 + (b.t / 0.9) * 18;
+    ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x + Math.cos(b.aim) * 700, b.y + Math.sin(b.aim) * 700); ctx.stroke();
+  } else if (b.kind === 'zhulong' && b.state === 'beam') {
+    const k = 1 - b.t / 0.7;
+    ctx.strokeStyle = 'rgba(255,150,60,0.9)';
+    ctx.lineWidth = 26 * k + 6;
+    ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x + Math.cos(b.aim) * 700, b.y + Math.sin(b.aim) * 700); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,240,200,0.95)';
+    ctx.lineWidth = 8 * k + 2;
+    ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x + Math.cos(b.aim) * 700, b.y + Math.sin(b.aim) * 700); ctx.stroke();
+  }
+  // 地面阴影
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.beginPath(); ctx.ellipse(b.x, b.y + b.r * 0.95, b.r, b.r * 0.3, 0, 0, TAU); ctx.fill();
+  // BOSS 开源像素精灵
+  if (hasImg) {
+    const bs = b.r * 3.1;
+    ctx.save();
+    ctx.translate(b.x, b.y + Math.sin(t * 2) * 3 - b.r * 0.25);
+    ctx.imageSmoothingEnabled = false;
+    if (b.flash > 0) ctx.filter = 'brightness(1.9) saturate(0.35)';
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetY = 8;
+    ctx.drawImage(bi, -bs / 2, -bs / 2, bs, bs);
+    ctx.restore();
   } else {
-    // 妖王 / 九婴
-    const bob = Math.sin(t * 2.2) * 4;
-    ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    ctx.beginPath(); ctx.ellipse(b.x, b.y + 44, 40, 11, 0, 0, TAU); ctx.fill();
-    // 蓄力预警圈
-    if (b.state === 'slamTel') {
-      const sr = b.slamR || 170;
-      ctx.strokeStyle = 'rgba(255,70,70,' + (0.4 + Math.sin(t * 20) * 0.25) + ')';
-      ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(b.x, b.y, sr, 0, TAU); ctx.stroke();
-      ctx.fillStyle = 'rgba(255,70,70,0.08)';
-      ctx.beginPath(); ctx.arc(b.x, b.y, sr, 0, TAU); ctx.fill();
-    }
-    // 冲锋预警线
-    if (b.state === 'chargeTel') {
-      ctx.strokeStyle = 'rgba(255,70,70,' + (0.35 + Math.sin(t * 18) * 0.2) + ')';
-      ctx.lineWidth = 26;
-      ctx.setLineDash([16, 14]);
-      ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x + Math.cos(b.aim) * 560, b.y + Math.sin(b.aim) * 560); ctx.stroke();
-      ctx.setLineDash([]);
-    }
-    ctx.translate(b.x, b.y + bob);
-    const flip = Math.cos(b.aim || 0) < 0 ? -1 : 1;
-    ctx.scale(flip, 1);
-    if (b.kind === 'ninehead') {
-      // 九婴：环身蛇首 + 中心魔眼
-      const rot = t * 0.5;
-      for (let i = 0; i < 6; i++) {
-        const ha = rot + i / 6 * TAU;
-        const hx = Math.cos(ha) * (b.r + 16), hy = Math.sin(ha) * (b.r + 16) * 0.85;
-        ctx.strokeStyle = '#5a7a3a'; ctx.lineWidth = 9; ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(Math.cos(ha) * b.r * 0.6, Math.sin(ha) * b.r * 0.5);
-        ctx.lineTo(hx, hy); ctx.stroke();
-        ctx.fillStyle = '#6f9c37';
-        ctx.beginPath(); ctx.ellipse(hx, hy, 13, 10, ha, 0, TAU); ctx.fill();
-        ctx.fillStyle = '#ff4040';
-        ctx.beginPath(); ctx.arc(hx + Math.cos(ha) * 4 - Math.sin(ha) * 3, hy + Math.sin(ha) * 4 + Math.cos(ha) * 3, 2, 0, TAU); ctx.fill();
-        ctx.beginPath(); ctx.arc(hx + Math.cos(ha) * 4 + Math.sin(ha) * 3, hy + Math.sin(ha) * 4 - Math.cos(ha) * 3, 2, 0, TAU); ctx.fill();
-      }
-      // 主躯与背棘
-      ctx.fillStyle = '#3f5a30';
-      ctx.beginPath(); ctx.ellipse(0, 0, b.r * 1.12, b.r * 0.95, 0, 0, TAU); ctx.fill();
-      ctx.fillStyle = '#2c3f22';
-      for (let i = 0; i < 5; i++) {
-        const sa = -Math.PI * 0.5 + (i - 2) * 0.5;
-        const bx0 = Math.cos(sa) * b.r * 0.85, by0 = Math.sin(sa) * b.r * 0.72;
-        const tx = Math.cos(sa) * b.r * 1.28, ty = Math.sin(sa) * b.r * 1.08;
-        ctx.beginPath();
-        ctx.moveTo(bx0 - Math.sin(sa) * 7, by0 + Math.cos(sa) * 7);
-        ctx.lineTo(tx, ty);
-        ctx.lineTo(bx0 + Math.sin(sa) * 7, by0 - Math.cos(sa) * 7);
-        ctx.fill();
-      }
-      ctx.fillStyle = '#557644';
-      ctx.beginPath(); ctx.ellipse(0, 0, b.r * 0.85, b.r * 0.7, 0, 0, TAU); ctx.fill();
-      // 中心魔眼
-      ctx.fillStyle = '#201408';
-      ctx.beginPath(); ctx.arc(0, 0, 16, 0, TAU); ctx.fill();
-      const nglow = 0.6 + Math.sin(t * 6) * 0.3;
-      ctx.fillStyle = 'rgba(255,150,40,' + nglow + ')';
-      ctx.beginPath(); ctx.arc(0, 0, 9, 0, TAU); ctx.fill();
-      ctx.fillStyle = '#201408';
-      ctx.beginPath(); ctx.arc(0, 0, 4, 0, TAU); ctx.fill();
-    } else {
-    // 气焰
-    ctx.fillStyle = 'rgba(150,60,220,0.16)';
-    ctx.beginPath(); ctx.arc(0, 0, 62 + Math.sin(t * 4) * 5, 0, TAU); ctx.fill();
-    // 犄角
-    ctx.strokeStyle = '#e8dcc0'; ctx.lineWidth = 9; ctx.lineCap = 'round';
-    for (const side of [-1, 1]) {
-      ctx.beginPath(); ctx.moveTo(side * 20, -38);
-      ctx.quadraticCurveTo(side * 42, -62, side * 30, -84);
-      ctx.stroke();
-    }
-    // 身躯
-    ctx.fillStyle = '#4a2b6b';
-    ctx.beginPath();
-    ctx.moveTo(-34, 42); ctx.quadraticCurveTo(-44, -6, -28, -30);
-    ctx.quadraticCurveTo(0, -48, 28, -30);
-    ctx.quadraticCurveTo(44, -6, 34, 42);
-    ctx.closePath(); ctx.fill();
-    // 腹部
-    ctx.fillStyle = '#6b4494';
-    ctx.beginPath(); ctx.ellipse(0, 14, 20, 24, 0, 0, TAU); ctx.fill();
-    // 肩刺
-    ctx.fillStyle = '#3a2054';
-    for (const side of [-1, 1]) {
-      ctx.beginPath(); ctx.moveTo(side * 26, -24); ctx.lineTo(side * 46, -34); ctx.lineTo(side * 30, -8); ctx.fill();
-    }
-    // 头
-    ctx.fillStyle = '#553377';
-    ctx.beginPath(); ctx.arc(0, -34, 19, 0, TAU); ctx.fill();
-    // 眼
-    const glow = 0.6 + Math.sin(t * 6) * 0.3;
-    ctx.fillStyle = 'rgba(255,60,60,' + glow + ')';
-    ctx.beginPath(); ctx.arc(-7, -36, 4.5, 0, TAU); ctx.fill();
-    ctx.beginPath(); ctx.arc(7, -36, 4.5, 0, TAU); ctx.fill();
-    // 獠牙
-    ctx.fillStyle = '#efe6d0';
-    ctx.beginPath(); ctx.moveTo(-9, -26); ctx.lineTo(-6, -16); ctx.lineTo(-3, -26); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(9, -26); ctx.lineTo(6, -16); ctx.lineTo(3, -26); ctx.fill();
-    // 拳
-    ctx.fillStyle = '#3a2054';
-    ctx.beginPath(); ctx.arc(-38, 18, 11, 0, TAU); ctx.fill();
-    ctx.beginPath(); ctx.arc(38, 18, 11, 0, TAU); ctx.fill();
-    }
+    ctx.fillStyle = 'rgba(96,58,150,0.55)';
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, TAU); ctx.fill();
+  }
+  // 受击白闪圈
+  if (b.flash > 0 && b.dying < 0) {
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r + 12, 0, TAU); ctx.fill();
   }
   ctx.restore();
-  // 受击闪光
-  if (b.flash > 0 && b.dying < 0) {
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    ctx.beginPath(); ctx.arc(b.x, b.y, b.r + 8, 0, TAU); ctx.fill();
-  }
 }
-
-/* ================= 绘制：HUD ================= */
 function bar(x, y, w, h, frac, color, label) {
   ctx.fillStyle = 'rgba(8,6,14,0.72)';
   ctx.strokeStyle = 'rgba(138,109,47,0.55)'; ctx.lineWidth = 1;
@@ -2809,14 +2584,25 @@ function frame(now) {
       ctx.fillStyle = 'rgba(160,240,255,0.9)';
       ctx.beginPath(); ctx.arc(o.x, o.y, 2, 0, TAU); ctx.fill();
     }
-    // 葫芦
+    // 灵药（开源贴图）
     for (const g of G.pickups) {
       const fl = Math.sin(g.t * 5) * 3;
-      ctx.fillStyle = '#c86a2a';
-      ctx.beginPath(); ctx.arc(g.x, g.y + fl - 3, 6, 0, TAU); ctx.fill();
-      ctx.beginPath(); ctx.arc(g.x, g.y + fl + 5, 8, 0, TAU); ctx.fill();
-      ctx.fillStyle = 'rgba(255,220,120,0.8)';
-      ctx.fillRect(g.x - 2, g.y + fl - 11, 4, 4);
+      const pi = ITEM_IMG.potion;
+      if (pi.complete && pi.naturalWidth > 0) {
+        ctx.save();
+        ctx.translate(g.x, g.y + fl);
+        ctx.imageSmoothingEnabled = false;
+        ctx.shadowColor = 'rgba(255,170,70,0.85)';
+        ctx.shadowBlur = 12;
+        ctx.drawImage(pi, -12, -13, 24, 24);
+        ctx.restore();
+      } else {
+        ctx.fillStyle = '#c86a2a';
+        ctx.beginPath(); ctx.arc(g.x, g.y + fl - 3, 6, 0, TAU); ctx.fill();
+        ctx.beginPath(); ctx.arc(g.x, g.y + fl + 5, 8, 0, TAU); ctx.fill();
+        ctx.fillStyle = 'rgba(255,220,120,0.8)';
+        ctx.fillRect(g.x - 2, g.y + fl - 11, 4, 4);
+      }
     }
     // 妖弹 / 蛛丝
     for (const q of G.eprojectiles) {
@@ -2966,7 +2752,7 @@ requestAnimationFrame(frame);
 window.G = G; window.startRun = startRun; window.startLevel = startLevel;
 window.__step = (n = 1, dt = 1 / 60) => { for (let i = 0; i < n; i++) if (G.state === 'playing') update(dt); };
 window.__gain = gainXP; window.__spawn = spawnMonster; window.__pick = pickCard;
-window.LEVELS = LEVELS; window.MON_IMG = MON_IMG; window.BGM = BGM;
+window.LEVELS = LEVELS; window.MON_IMG = MON_IMG; window.BGM = BGM; window.SAMP_BUF = SAMP_BUF; window.BOSS_IMG = BOSS_IMG; window.ITEM_IMG = ITEM_IMG;
 </script>
 </body>
 </html>
