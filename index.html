@@ -1900,7 +1900,7 @@ function drawMonSprite(e) {
   const M = MONSTERS[e.type];
   const bob = Math.sin(t * 2) * 2.5;
   const y = e.y - (e.z || 0) - bob;
-  const flip = Math.cos(e.dirAng || 0) < 0 ? -1 : 1;
+  const flip = Math.cos(e.dirAng || 0) > 0 ? -1 : 1; // 贴图原生朝左：目标在右时镜像成正面对敌
   ctx.save();
   // 1. 地面阴影
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
@@ -2500,8 +2500,10 @@ function drawBoss(b) {
   // BOSS 开源像素精灵
   if (hasImg) {
     const bs = b.r * 3.1;
+    const bflip = Math.cos(b.aim || 0) > 0 ? -1 : 1;
     ctx.save();
     ctx.translate(b.x, b.y + Math.sin(t * 2) * 3 - b.r * 0.25);
+    ctx.scale(bflip, 1);
     ctx.imageSmoothingEnabled = false;
     if (b.flash > 0) ctx.filter = 'brightness(1.9) saturate(0.35)';
     ctx.shadowColor = 'rgba(0,0,0,0.55)';
