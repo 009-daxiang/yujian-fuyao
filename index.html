@@ -50,6 +50,7 @@
     border:1px solid #6d5728;border-radius:14px;cursor:pointer;color:#e8dcc0;transition:all .15s;text-align:center;}
   .card:hover{border-color:#e8c86a;transform:translateY(-4px);box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 16px rgba(232,200,106,.3);}
   .card .ic{font-size:40px;line-height:1.2;}
+  .card .ic img{width:48px;height:48px;filter:drop-shadow(0 0 6px rgba(255,220,140,0.45));vertical-align:middle;}
   .card .nm{font-size:21px;color:#f0d890;margin:8px 0 6px;letter-spacing:2px;}
   .card .ds{font-size:14px;color:#9c8fb8;line-height:1.6;}
   .stats{font-size:17px;color:#c9bfae;line-height:2;margin:10px 0 4px;letter-spacing:1px;}
@@ -366,6 +367,17 @@ const BG_FLOORS = ['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9', 'b10', 
   const im = new Image();
   im.src = 'assets/bg2/' + k + '.png';
   return im;
+});
+// 技能图标（game-icons.net · CC BY 3.0）
+const ICON_FILES = {
+  sword: 'sword', big: 'big', dmg: 'dmg', speed: 'speed', rate: 'rate', orbit: 'orbit',
+  hp: 'hp', magnet: 'magnet', crit: 'crit', aura: 'aura', volley: 'volley', homing: 'homing',
+};
+const ICON_IMG = {};
+Object.entries(ICON_FILES).forEach(([id, f]) => {
+  const im = new Image();
+  im.src = f.endsWith('.png') ? 'assets/icons/' + f : 'assets/icons/' + f + '.svg';
+  ICON_IMG[id] = im;
 });
 
 /* ================= 数据：十关配置 ================= */
@@ -1059,7 +1071,8 @@ function openLevelUp() {
   offers.forEach((u, i) => {
     const c = document.createElement('div');
     c.className = 'card';
-    c.innerHTML = '<div class="ic">' + u.icon + '</div><div class="nm">' + u.name + '</div><div class="ds">' + u.desc + '</div>';
+    const icf = ICON_FILES[u.id];
+    c.innerHTML = '<div class="ic">' + (icf ? '<img src="assets/icons/' + icf + '.svg" alt="">' : u.icon) + '</div><div class="nm">' + u.name + '</div><div class="ds">' + u.desc + '</div>';
     c.onclick = () => pickCard(i);
     box.appendChild(c);
   });
@@ -1072,6 +1085,8 @@ function pickCard(i) {
   if (!u) return;
   u.apply(G.player);
   if (u.id !== 'heal') G.player.upCounts[u.id] = (G.player.upCounts[u.id] || 0) + 1;
+  const a2 = ac();
+  if (a2) { const t0 = a2.currentTime; playSample('harp', 'C4', t0, 1, 0.18); playSample('harp', 'E4', t0 + 0.09, 1, 0.15); playSample('harp', 'A4', t0 + 0.18, 1, 0.15); }
   sfx.click();
   hideScreens();
   G.state = 'playing';
@@ -1224,7 +1239,8 @@ function update(dt) {
     }
     f.trail.unshift({ x: f.x, y: f.y });
     if (f.trail.length > 12) f.trail.pop();
-    if (Math.random() < 0.3) G.parts.push({ x: f.x, y: f.y, vx: rand(-30, 30), vy: rand(-30, 30), r: rand(1, 2.4), color: '#bfe4ff', life: 0.3, t: 0 });
+    const elc = { fire: '#ff9a4c', ice: '#bdeaff', crit: '#ff6a6a', wind: '#7de8b8', violet: '#c9a8ff', steel: '#bfe4ff' }[swordElement(p)];
+    if (Math.random() < 0.3) G.parts.push({ x: f.x, y: f.y, vx: rand(-30, 30), vy: rand(-30, 30), r: rand(1, 2.4), color: elc, life: 0.3, t: 0 });
     for (const e of G.monsters) {
       if (e.hp <= 0 || e.flyCd > 0) continue;
       if (dist2(f.x, f.y, e.x, e.y) < (f.len * 0.22 + e.r) * (f.len * 0.22 + e.r)) {
@@ -1604,17 +1620,35 @@ function drawBG() {
 }
 
 /* ================= 绘制：飞剑 ================= */
-function drawSword(x, y, ang, len, glow) {
+const ELEM = {
+  steel:  { a: '#e8f6ff', b: '#9cccff', c: '#5b9bd5', edge: 'rgba(225,242,255,0.7)', glow: 'rgba(110,215,255,', trail: '140,210,255' },
+  fire:   { a: '#ffe9cf', b: '#ffa050', c: '#e04c14', edge: 'rgba(255,190,120,0.9)', glow: 'rgba(255,140,60,',  trail: '255,150,80' },
+  ice:    { a: '#f0feff', b: '#8adcff', c: '#2f8fd8', edge: 'rgba(190,240,255,0.9)', glow: 'rgba(130,215,255,', trail: '150,225,255' },
+  violet: { a: '#f2e8ff', b: '#b48cff', c: '#7a3ce8', edge: 'rgba(220,190,255,0.9)', glow: 'rgba(170,120,255,', trail: '180,140,255' },
+  crit:   { a: '#ffe9e9', b: '#ff7a7a', c: '#d82040', edge: 'rgba(255,120,120,0.9)', glow: 'rgba(255,90,90,',   trail: '255,110,110' },
+  wind:   { a: '#eafff2', b: '#7de8b8', c: '#28a87a', edge: 'rgba(160,255,210,0.9)', glow: 'rgba(110,240,190,', trail: '130,240,200' },
+};
+function swordElement(p) {
+  const u = p.upCounts || {};
+  if (u.big) return 'fire';
+  if (u.rate) return 'ice';
+  if (u.crit) return 'crit';
+  if (u.homing) return 'wind';
+  if (u.dmg) return 'violet';
+  return 'steel';
+}
+function drawSword(x, y, ang, len, glow, elem, tassel) {
+  const E = ELEM[elem || 'steel'] || ELEM.steel;
   ctx.save();
   ctx.translate(x, y); ctx.rotate(ang);
   const bw = len * 0.085;
   if (glow > 0) {
-    ctx.shadowColor = 'rgba(110,215,255,' + glow + ')';
+    ctx.shadowColor = E.glow + Math.min(1, glow).toFixed(2) + ')';
     ctx.shadowBlur = 16;
   }
   // 剑刃
   const g = ctx.createLinearGradient(0, 0, len * 0.64, 0);
-  g.addColorStop(0, '#dff2ff'); g.addColorStop(0.5, '#9cccff'); g.addColorStop(1, '#5b9bd5');
+  g.addColorStop(0, E.a); g.addColorStop(0.5, E.b); g.addColorStop(1, E.c);
   ctx.fillStyle = g;
   ctx.beginPath();
   ctx.moveTo(0, -bw / 2);
@@ -1624,9 +1658,28 @@ function drawSword(x, y, ang, len, glow) {
   ctx.lineTo(0, bw / 2);
   ctx.closePath(); ctx.fill();
   // 剑脊
-  ctx.strokeStyle = 'rgba(235,248,255,0.75)'; ctx.lineWidth = 1;
+  ctx.strokeStyle = E.edge; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(len * 0.5, 0); ctx.stroke();
   ctx.shadowBlur = 0;
+  // 剑意特效
+  if (elem === 'crit') { // 红锋刃线
+    ctx.strokeStyle = 'rgba(255,60,60,0.85)'; ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(0, -bw / 2); ctx.lineTo(len * 0.5, -bw * 0.46); ctx.lineTo(len * 0.64, 0);
+    ctx.lineTo(len * 0.5, bw * 0.46); ctx.lineTo(0, bw / 2);
+    ctx.stroke();
+  }
+  if (elem === 'violet' && Math.random() < 0.55) { // 紫电弧
+    ctx.strokeStyle = 'rgba(220,180,255,0.9)'; ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    let zx = 0, zy = 0;
+    ctx.moveTo(zx, zy);
+    for (let i = 1; i <= 3; i++) {
+      zx = len * 0.64 * (i / 3); zy = rand(-bw, bw);
+      ctx.lineTo(zx, zy);
+    }
+    ctx.stroke();
+  }
   // 剑格
   ctx.fillStyle = '#d8b24a';
   ctx.fillRect(-2, -bw * 1.5, 4.5, bw * 3);
@@ -1643,68 +1696,18 @@ function drawSword(x, y, ang, len, glow) {
   // 剑首
   ctx.fillStyle = '#d8b24a';
   ctx.beginPath(); ctx.arc(-len * 0.28, 0, bw * 0.72, 0, TAU); ctx.fill();
-  ctx.restore();
-}
-
-/* ================= 绘制：玩家（剑修） ================= */
-function playerTier(p) { return p.xpLv >= 15 ? 4 : p.xpLv >= 10 ? 3 : p.xpLv >= 5 ? 2 : 1; }
-function newPet() {
-  return { x: 0, y: 0, t: 0, shootT: 1, skillT: 5 };
-}
-function drawPet(q) {
-  const t = G.t;
-  const stage = q.stage || 1;
-  const ss = 1 + (stage - 1) * 0.16;
-  ctx.save();
-  ctx.translate(q.x, q.y + Math.sin(t * 3) * 3);
-  // 天外天金身
-  if (q.golden) {
-    ctx.strokeStyle = 'rgba(255,220,120,' + (0.5 + Math.sin(t * 4) * 0.25) + ')';
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(0, 0, 20, 0, TAU); ctx.stroke();
-  }
-  ctx.fillStyle = 'rgba(127,224,255,0.12)';
-  ctx.beginPath(); ctx.arc(0, 0, 18 * ss, 0, TAU); ctx.fill();
-  ctx.scale(ss, ss);
-  // 焰尾（进化增加尾数）
-  const nT = stage >= 3 ? 5 : stage === 2 ? 3 : 1;
-  for (let i = 0; i < nT; i++) {
-    const ta = (i - (nT - 1) / 2) * 0.45;
-    const fl = Math.sin(t * 7 + i) * 2;
-    ctx.save();
-    ctx.rotate(ta);
-    const g = ctx.createLinearGradient(-22, 0, -2, 0);
-    const c1 = stage >= 3 ? 'rgba(170,120,255,0)' : 'rgba(80,180,255,0)';
-    const c2 = stage >= 3 ? 'rgba(200,150,255,0.95)' : 'rgba(120,220,255,0.95)';
-    g.addColorStop(0, c1); g.addColorStop(1, c2);
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.moveTo(-4, -2);
-    ctx.quadraticCurveTo(-14, -6 - fl, -23 - (stage >= 3 ? 4 : 0), -1);
-    ctx.quadraticCurveTo(-13, 4, -4, 3);
-    ctx.fill();
-    ctx.restore();
-  }
-  // 身体与耳朵
-  ctx.fillStyle = stage >= 3 ? '#efe6ff' : '#f2f4fa';
-  ctx.beginPath(); ctx.ellipse(0, 0, 9, 7, 0, 0, TAU); ctx.fill();
-  ctx.fillStyle = '#e8ecf6';
-  ctx.beginPath(); ctx.moveTo(-3, -5); ctx.lineTo(-1.5, -11); ctx.lineTo(1, -5.5); ctx.fill();
-  ctx.beginPath(); ctx.moveTo(3, -5); ctx.lineTo(4.5, -11); ctx.lineTo(7, -5); ctx.fill();
-  // 眼睛
-  ctx.fillStyle = stage >= 3 ? '#9a5ae0' : '#2aa8e0';
-  ctx.beginPath(); ctx.arc(3.5, -1, 1.3, 0, TAU); ctx.fill();
-  ctx.beginPath(); ctx.arc(7.5, -1, 1.3, 0, TAU); ctx.fill();
-  // 技能就绪微光
-  if (q.skillT < 1) {
-    ctx.strokeStyle = 'rgba(127,224,255,' + (0.5 + Math.sin(t * 10) * 0.3) + ')';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(0, 0, 13, 0, TAU); ctx.stroke();
+  // 剑穗（金缕三缕，随波动）
+  if (tassel) {
+    const wob = Math.sin(Date.now() / 90) * 0.35;
+    ctx.strokeStyle = '#f0c860'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.moveTo(-len * 0.28, 0);
+      ctx.quadraticCurveTo(-len * 0.4, i * bw * 0.8 + wob * 3, -len * 0.52, i * bw * 1.4 + wob * 6);
+      ctx.stroke();
+    }
   }
   ctx.restore();
-}
-function newPet() {
-  return { x: 0, y: 0, t: 0, shootT: 1, skillT: 5 };
 }
 function drawPlayer(p) {
   const t = G.t;
@@ -1726,7 +1729,7 @@ function drawPlayer(p) {
   ctx.scale(p.faceX * gs, gs);
   // 御剑（脚底踏立的飞剑）
   const fTilt = 0.06 + Math.sin(t * 2.1) * 0.05;
-  drawSword(-10, 17, fTilt, 54, (p.footFlash || 0) > 0 ? 0.95 : 0.55);
+  drawSword(-10, 17, fTilt, 54, (p.footFlash || 0) > 0 ? 0.95 : 0.55, swordElement(p));
   // 剑罡领域
   if (p.aura) {
     ctx.strokeStyle = 'rgba(120,220,255,0.35)'; ctx.lineWidth = 2;
@@ -1746,7 +1749,7 @@ function drawPlayer(p) {
     }
   }
   // 背负灵剑（二阶以上）
-  if (tier >= 2) drawSword(-7, -6, -2.3, 30, 0.25);
+  if (tier >= 2) drawSword(-7, -6, -2.3, 30, 0.25, swordElement(p));
   // 修士贴图（开源人形贴图 · 四阶进化：灵溪仙子/林间仙者/鬼修/半神）
   const pi = PLAYER_IMG['t' + tier];
   if (pi && pi.complete && pi.naturalWidth > 0) {
@@ -2379,6 +2382,59 @@ function drawMonLegacy(e) {
 }
 
 /* ================= 绘制：BOSS ================= */
+function playerTier(p) { return p.xpLv >= 15 ? 4 : p.xpLv >= 10 ? 3 : p.xpLv >= 5 ? 2 : 1; }
+function newPet() {
+  return { x: 0, y: 0, t: 0, shootT: 1, skillT: 5, stage: 1 };
+}
+function drawPet(q) {
+  const t = G.t;
+  const stage = q.stage || 1;
+  const ss = 1 + (stage - 1) * 0.16;
+  ctx.save();
+  ctx.translate(q.x, q.y + Math.sin(t * 3) * 3);
+  if (q.golden) {
+    ctx.strokeStyle = 'rgba(255,220,120,' + (0.5 + Math.sin(t * 4) * 0.25) + ')';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(0, 0, 20, 0, TAU); ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(127,224,255,0.12)';
+  ctx.beginPath(); ctx.arc(0, 0, 18 * ss, 0, TAU); ctx.fill();
+  ctx.scale(ss, ss);
+  const nT = stage >= 3 ? 5 : stage === 2 ? 3 : 1;
+  for (let i = 0; i < nT; i++) {
+    const ta = (i - (nT - 1) / 2) * 0.45;
+    const fl = Math.sin(t * 7 + i) * 2;
+    ctx.save();
+    ctx.rotate(ta);
+    const g = ctx.createLinearGradient(-22, 0, -2, 0);
+    const c1 = stage >= 3 ? 'rgba(170,120,255,0)' : 'rgba(80,180,255,0)';
+    const c2 = stage >= 3 ? 'rgba(200,150,255,0.95)' : 'rgba(120,220,255,0.95)';
+    g.addColorStop(0, c1); g.addColorStop(1, c2);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(-4, -2);
+    ctx.quadraticCurveTo(-14, -6 - fl, -23 - (stage >= 3 ? 4 : 0), -1);
+    ctx.quadraticCurveTo(-13, 4, -4, 3);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.fillStyle = stage >= 3 ? '#efe6ff' : '#f2f4fa';
+  ctx.beginPath(); ctx.ellipse(0, 0, 9, 7, 0, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#e8ecf6';
+  ctx.beginPath(); ctx.moveTo(-3, -5); ctx.lineTo(-1.5, -11); ctx.lineTo(1, -5.5); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(3, -5); ctx.lineTo(4.5, -11); ctx.lineTo(7, -5); ctx.fill();
+  ctx.fillStyle = stage >= 3 ? '#9a5ae0' : '#2aa8e0';
+  ctx.beginPath(); ctx.arc(3.5, -1, 1.3, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(7.5, -1, 1.3, 0, TAU); ctx.fill();
+  if (q.skillT < 1) {
+    ctx.strokeStyle = 'rgba(127,224,255,' + (0.5 + Math.sin(t * 10) * 0.3) + ')';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(0, 0, 13, 0, TAU); ctx.stroke();
+  }
+  ctx.restore();
+}
+function updateOneBoss(b, dt) { updateBossSingle(b, dt); }
+
 function drawBoss(b) {
   if (!b) return;
   const t = G.t;
@@ -2692,20 +2748,22 @@ function frame(now) {
         drawSword(p.x + Math.cos(aa) * orb.radius, p.y + Math.sin(aa) * orb.radius, aa + Math.PI / 2, slen, 0);
       }
       ctx.globalAlpha = 1;
-      drawSword(p.x + Math.cos(a) * orb.radius, p.y + Math.sin(a) * orb.radius, a + Math.PI / 2, slen, 0.5 + 0.2 * Math.sin(G.t * 6 + i));
+      const el = swordElement(p), tas = (p.upCounts.sword || p.upCounts.volley) ? true : false;
+      drawSword(p.x + Math.cos(a) * orb.radius, p.y + Math.sin(a) * orb.radius, a + Math.PI / 2, slen, 0.5 + 0.2 * Math.sin(G.t * 6 + i), el, tas);
     }
     // 出击飞剑（带残影）
     for (const f of G.flies) {
       const fs = f.scale || 1;
       for (let i = f.trail.length - 1; i >= 1; i--) {
         const tp = f.trail[i], tp2 = f.trail[i - 1];
-        ctx.strokeStyle = 'rgba(140,210,255,' + (0.4 * (1 - i / f.trail.length) * fs).toFixed(3) + ')';
+        const tc = (ELEM[swordElement(p)] || ELEM.steel).trail;
+        ctx.strokeStyle = 'rgba(' + tc + ',' + (0.4 * (1 - i / f.trail.length) * fs).toFixed(3) + ')';
         ctx.lineWidth = (f.len * 0.16 * (1 - i / f.trail.length) + 2) * fs;
         ctx.lineCap = 'round';
         ctx.beginPath(); ctx.moveTo(tp.x, tp.y); ctx.lineTo(tp2.x, tp2.y); ctx.stroke();
       }
       ctx.globalAlpha = Math.min(1, 0.35 + fs * 0.65);
-      drawSword(f.x, f.y, f.ang, f.len * fs, 0.85 * fs);
+      drawSword(f.x, f.y, f.ang, f.len * fs, 0.85 * fs, swordElement(p), true);
       ctx.globalAlpha = 1;
     }
     // 剑光弧与击杀波纹
@@ -2773,7 +2831,7 @@ requestAnimationFrame(frame);
 window.G = G; window.startRun = startRun; window.startLevel = startLevel;
 window.__step = (n = 1, dt = 1 / 60) => { for (let i = 0; i < n; i++) if (G.state === 'playing') update(dt); };
 window.__gain = gainXP; window.__spawn = spawnMonster; window.__pick = pickCard;
-window.LEVELS = LEVELS; window.MON_IMG = MON_IMG; window.BGM = BGM; window.SAMP_BUF = SAMP_BUF; window.BOSS_IMG = BOSS_IMG; window.ITEM_IMG = ITEM_IMG;
+window.LEVELS = LEVELS; window.MON_IMG = MON_IMG; window.BGM = BGM; window.SAMP_BUF = SAMP_BUF; window.BOSS_IMG = BOSS_IMG; window.ITEM_IMG = ITEM_IMG; window.ICON_IMG = ICON_IMG; window.UPGRADES = UPGRADES;
 </script>
 </body>
 </html>
