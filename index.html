@@ -361,6 +361,14 @@ for (let i = 0; i < 52; i++) {
   im.src = 'assets/player/p' + String(i).padStart(2, '0') + '.png';
   PLAYER_IMG['p' + String(i).padStart(2, '0')] = im;
 }
+// 玩家专属主角形象 ×8（玩家提供素材 · 每 65 关进阶一形）
+const HERO_IMG = {};
+for (let i = 1; i <= 8; i++) {
+  const im = new Image();
+  im.src = 'assets/player/custom/g' + i + '.png';
+  HERO_IMG['g' + i] = im;
+}
+const HERO_FORM_LEVELS = [1, 65, 130, 195, 260, 325, 390, 455]; // 各形登场关卡
 const STAGE_RANK = ['凡人境', '灵修境', '魔将境', '魔君境', '大妖境', '天外境'];
 const RANK_AURA = ['rgba(127,224,255,0.16)', 'rgba(170,120,255,0.18)', 'rgba(255,120,120,0.18)', 'rgba(255,215,130,0.2)', 'rgba(240,240,255,0.22)', 'rgba(200,150,255,0.25)'];
 const BOSS_IMG = {};
@@ -1908,9 +1916,18 @@ function drawPlayer(p) {
   ctx.translate(p.x, p.y + bob);
   const gs = 1 + Math.min(0.22, (p.xpLv - 1) * 0.011); // 身形随修为增长
   ctx.scale(p.faceX * gs, gs);
-  // 御剑（脚底踏立的飞剑）
-  const fTilt = 0.06 + Math.sin(t * 2.1) * 0.05;
-  drawSword(-10, 17, fTilt, 54, (p.footFlash || 0) > 0 ? 0.95 : 0.55, swordElement(p));
+  const hCur = HERO_IMG['g' + (Math.min(7, Math.floor((G.level - 1) / 65)) + 1)];
+  const heroSprite = hCur && hCur.complete && hCur.naturalWidth > 0;
+  // 脚下光晕（专属形象自带御剑时的落点辉光）
+  if (heroSprite) {
+    ctx.fillStyle = 'rgba(140,215,255,' + (0.14 + Math.sin(t * 3) * 0.05) + ')';
+    ctx.beginPath(); ctx.ellipse(0, 20, 30, 8, 0, 0, TAU); ctx.fill();
+  }
+  // 御剑（脚底踏立的飞剑 · 通用形象）
+  if (!heroSprite) {
+    const fTilt = 0.06 + Math.sin(t * 2.1) * 0.05;
+    drawSword(-10, 17, fTilt, 54, (p.footFlash || 0) > 0 ? 0.95 : 0.55, swordElement(p));
+  }
   // 剑罡领域
   if (p.aura) {
     ctx.strokeStyle = 'rgba(120,220,255,0.35)'; ctx.lineWidth = 2;
@@ -1931,9 +1948,23 @@ function drawPlayer(p) {
   }
   // 背负灵剑（灵修境以上）
   if (stage >= 2) drawSword(-7, -6, -2.3, 30, 0.25, swordElement(p));
-  // 修士贴图（开源人形贴图 · 52 形，每十关一变）
+  // 主角形象（玩家专属 8 形优先 · 每 65 关进阶；否则开源 52 形每 10 关一变）
+  let heroForm = 0;
+  for (let i = HERO_FORM_LEVELS.length - 1; i >= 0; i--) {
+    if (G.level >= HERO_FORM_LEVELS[i]) { heroForm = i; break; }
+  }
+  const hi = HERO_IMG['g' + (heroForm + 1)];
   const pi = PLAYER_IMG['p' + String(stage).padStart(2, '0')];
-  if (pi && pi.complete && pi.naturalWidth > 0) {
+  if (hi && hi.complete && hi.naturalWidth > 0) {
+    ctx.imageSmoothingEnabled = true;
+    const hscale = (1 + Math.min(0.3, stage * 0.006)) * 0.175; // 身形随境界缓缓增大
+    if (heroForm >= 4) { // 中期形象追加剑罡流光
+      ctx.strokeStyle = 'rgba(140,215,255,' + (0.25 + Math.sin(t * 5) * 0.12) + ')';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(0, -8, 34 * hscale * 4, 0, TAU); ctx.stroke();
+    }
+    ctx.drawImage(hi, -hi.width * hscale / 2, -hi.height * hscale / 2 - 6, hi.width * hscale, hi.height * hscale);
+  } else if (pi && pi.complete && pi.naturalWidth > 0) {
     ctx.imageSmoothingEnabled = false;
     const psz = 30 + stage * 0.24; // 身形随境界缓缓增大
     ctx.drawImage(pi, -psz / 2, -psz / 2 - 11, psz, psz + 3);
@@ -3142,7 +3173,7 @@ requestAnimationFrame(frame);
 window.G = G; window.startRun = startRun; window.startLevel = startLevel;
 window.__step = (n = 1, dt = 1 / 60) => { for (let i = 0; i < n; i++) if (G.state === 'playing') update(dt); };
 window.__gain = gainXP; window.__spawn = spawnMonster; window.__pick = pickCard;
-window.LEVELS = LEVELS; window.MON_IMG = MON_IMG; window.BGM = BGM; window.SAMP_BUF = SAMP_BUF; window.BOSS_IMG = BOSS_IMG; window.ITEM_IMG = ITEM_IMG; window.ICON_IMG = ICON_IMG; window.UPGRADES = UPGRADES;
+window.LEVELS = LEVELS; window.MON_IMG = MON_IMG; window.BGM = BGM; window.SAMP_BUF = SAMP_BUF; window.BOSS_IMG = BOSS_IMG; window.ITEM_IMG = ITEM_IMG; window.ICON_IMG = ICON_IMG; window.UPGRADES = UPGRADES; window.HERO_IMG = HERO_IMG;
 </script>
 </body>
 </html>
