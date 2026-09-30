@@ -659,7 +659,7 @@ function inputVec() {
 
 /* ================= 界面切换 ================= */
 const $ = id => document.getElementById(id);
-const SCREENS = ['scr-menu', 'scr-levelup', 'scr-clear', 'scr-over', 'scr-pause'];
+const SCREENS = ['scr-menu', 'scr-levelup', 'scr-clear', 'scr-over', 'scr-pause', 'scr-rank'];
 function showScreen(id) { SCREENS.forEach(s => $(s).classList.toggle('active', s === id)); }
 function hideScreens() { SCREENS.forEach(s => $(s).classList.remove('active')); }
 
