@@ -131,6 +131,11 @@
     <div id="rank-list" style="min-height:200px;max-height:46vh;overflow-y:auto;text-align:left;font-size:15px;line-height:2;"></div>
     <div><button class="btn small" id="btn-rank-refresh">刷新</button>
     <button class="btn small" id="btn-rank-back">返回</button></div>
+    <div style="margin-top:10px;font-size:12px;color:#6d5f8a;">
+      想上榜？把成绩发给房主，或粘贴上报密钥（房主专用）：
+      <div style="margin-top:6px;"><input id="lb-token-input" placeholder="粘贴上报密钥" style="width:70%;padding:6px 8px;font-size:12px;color:#e8dcc0;background:#17121f;border:1px solid #6d5728;border-radius:6px;">
+      <button class="btn small" id="btn-lb-token">存</button></div>
+    </div>
   </div>
 </div>
 <div class="screen" id="scr-pause">
@@ -716,7 +721,8 @@ function doPause() { if (G.state !== 'playing') return; G.state = 'paused'; show
 function doResume() { if (G.state !== 'paused') return; G.state = 'playing'; hideScreens(); }
 function toMenu() { G.state = 'menu'; showScreen('scr-menu'); buildMenu(); }
 
-const LB_URL = 'https://textdb.online/yujian-fuyao-lb-v1';
+const LB_URL = 'https://raw.githubusercontent.com/009-daxiang/yujian-fuyao-data/main/leaderboard.json';
+const LB_API = 'https://api.github.com/repos/009-daxiang/yujian-fuyao-data/contents/leaderboard.json';
 let LB_LAST = 0;
 function playerName() {
   const v = (localStorage.getItem('yujian_name') || '').trim();
@@ -727,28 +733,36 @@ async function lbFetchAll() {
     const r = await fetch(LB_URL + '?t=' + Date.now());
     const d = JSON.parse(await r.text());
     return d && d.players ? d : { players: {} };
-  } catch (e) { return null; }
+  } catch (e) { return { players: {} }; }
 }
 async function lbReport() {
-  const name = playerName();
-  if (!name || name.startsWith('侠客')) { /* 未命名也上报，用默认名 */ }
   const now = Date.now();
   if (now - LB_LAST < 15000) return;
   LB_LAST = now;
   try {
-    const base = (await lbFetchAll()) || { players: {} };
+    const name = playerName();
+    const base = await lbFetchAll();
     const ps = base.players || {};
     const me = ps[name] || {};
     ps[name] = {
       best: Math.max(G.level, me.best || 1),
       kills: Math.max(G.kills, me.kills || 0),
-      lv: Math.max(window.G.player.xpLv || 1, me.lv || 1),
       upd: now,
     };
-    await fetch(LB_URL, {
+    // 写云端需要上报密钥（读取对所有人开放）
+    const tk = localStorage.getItem('yujian_lb_token');
+    if (!tk) return;
+    const gr = await fetch(LB_API, { headers: { Accept: 'application/vnd.github+json' } });
+    const sha = (await gr.json()).sha;
+    const content = btoa(unescape(encodeURIComponent(JSON.stringify({ players: ps }))));
+    await fetch(LB_API, {
       method: 'PUT',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ players: ps }),
+      headers: {
+        Authorization: 'Bearer ' + tk,
+        Accept: 'application/vnd.github+json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ message: 'lb', sha, content }),
     });
   } catch (e) { }
 }
@@ -3267,6 +3281,12 @@ $('btn-rank').onclick = () => {
   showScreen('scr-rank');
 };
 $('btn-rank-refresh').onclick = () => { renderRank(playerName()); };
+$('btn-lb-token').onclick = () => {
+  const v = $('lb-token-input').value.trim();
+  if (v) { localStorage.setItem('yujian_lb_token', v); $('lb-token-input').value = ''; }
+  $('lb-token-input').placeholder = localStorage.getItem('yujian_lb_token') ? '已配置 ✓' : '粘贴上报密钥';
+};
+if (localStorage.getItem('yujian_lb_token')) $('lb-token-input').placeholder = '已配置 ✓';
 $('btn-rank-back').onclick = () => { showScreen('scr-menu'); };
 buildMenu();
 requestAnimationFrame(frame);
