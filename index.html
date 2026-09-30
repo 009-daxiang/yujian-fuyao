@@ -1254,7 +1254,8 @@ function checkClear() {
   if (G.clearT >= 0 || G.state !== 'playing') return;
   const quotaDone = G.killsThisLevel >= cfg.quota;
   const bossDone = !cfg.boss || (G.boss && G.boss.dead);
-  if (quotaDone && bossDone) G.clearT = 0.9;
+  const scrollWait = G.pickups.some(g => g.kind === 'scroll'); // 卷轴没捡不结算
+  if (quotaDone && bossDone && !scrollWait) G.clearT = 0.9;
 }
 function showClear() {
   const lv = G.level, last = lv >= LEVELS.length;
@@ -1804,8 +1805,12 @@ function update(dt) {
     g.t += dt;
     if (g.kind === 'scroll') {
       const dd = Math.sqrt(dist2(g.x, g.y, p.x, p.y)) || 1;
-      if (dd < 110) { g.x += (p.x - g.x) / dd * 130 * dt; g.y += (p.y - g.y) / dd * 130 * dt; }
-      if (dd < 26) {
+      if (g.t > 0.8) { // 短暂闪耀后自动飞向主角，确保拾取
+        const sp = Math.min(950, 260 + (g.t - 0.8) * 420);
+        g.x += (p.x - g.x) / dd * sp * dt;
+        g.y += (p.y - g.y) / dd * sp * dt;
+      }
+      if (dd < 34) {
         G.pickups.splice(i, 1);
         const gm = GRADE_META[g.grade];
         if (g.stype === 'split') {
@@ -3132,20 +3137,41 @@ function frame(now) {
       if (g.kind === 'scroll') {
         const gm = GRADE_META[g.grade];
         const si = SCROLL_IMGS[g.grade % SCROLL_IMGS.length];
+        // 闪亮：脉冲光柱 + 呼吸光晕 + 环绕星芒
+        const pulse = 0.6 + Math.sin(g.t * 4) * 0.4;
+        const beamG = ctx.createLinearGradient(g.x, g.y - 150, g.x, g.y + 10);
+        beamG.addColorStop(0, 'rgba(255,240,180,0)');
+        beamG.addColorStop(1, 'rgba(255,240,180,' + (0.12 + pulse * 0.16).toFixed(3) + ')');
+        ctx.fillStyle = beamG;
+        ctx.fillRect(g.x - 16, g.y - 150, 32, 160);
+        const gg = ctx.createRadialGradient(g.x, g.y + fl, 2, g.x, g.y + fl, 30);
+        gg.addColorStop(0, 'rgba(255,245,200,' + (0.35 + pulse * 0.25).toFixed(3) + ')');
+        gg.addColorStop(1, 'rgba(255,245,200,0)');
+        ctx.fillStyle = gg;
+        ctx.beginPath(); ctx.arc(g.x, g.y + fl, 30, 0, TAU); ctx.fill();
+        ctx.save();
+        ctx.translate(g.x, g.y + fl);
+        ctx.rotate(g.t * 1.4);
+        ctx.strokeStyle = 'rgba(255,236,170,' + (0.35 + pulse * 0.3).toFixed(3) + ')';
+        ctx.lineWidth = 1.5;
+        for (let k2 = 0; k2 < 4; k2++) {
+          const sa = k2 / 4 * TAU;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(sa) * 13, Math.sin(sa) * 13);
+          ctx.lineTo(Math.cos(sa) * (19 + pulse * 4), Math.sin(sa) * (19 + pulse * 4));
+          ctx.stroke();
+        }
+        ctx.restore();
         ctx.save();
         ctx.translate(g.x, g.y + fl);
         if (si.complete && si.naturalWidth > 0) {
           ctx.imageSmoothingEnabled = false;
-          ctx.shadowColor = gm.c; ctx.shadowBlur = 14;
-          ctx.drawImage(si, -11, -13, 22, 24);
+          ctx.shadowColor = gm.c; ctx.shadowBlur = 16 + pulse * 8;
+          ctx.drawImage(si, -13, -15, 26, 28);
         } else {
           ctx.fillStyle = '#d8c9a0'; ctx.fillRect(-7, -9, 14, 18);
         }
         ctx.restore();
-        ctx.textAlign = 'center'; ctx.font = 'bold 12px serif';
-        ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.lineWidth = 3;
-        ctx.strokeText(gm.n, g.x, g.y - 20);
-        ctx.fillStyle = gm.c; ctx.fillText(gm.n, g.x, g.y - 20);
         continue;
       }
       const pi = ITEM_IMG.potion;
