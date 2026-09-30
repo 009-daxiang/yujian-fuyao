@@ -58,6 +58,12 @@
   #mute,#pausebtn{position:fixed;right:14px;z-index:20;width:44px;height:44px;border-radius:50%;
     background:rgba(30,24,46,.8);border:1px solid #6d5728;color:#ecd9a0;font-size:19px;cursor:pointer;}
   #mute{bottom:12px;}
+  #name-row{display:flex;gap:8px;justify-content:center;margin:10px 0 2px;}
+  #name-input{width:150px;padding:8px 10px;font-family:inherit;font-size:15px;color:#f0d890;
+    background:#17121f;border:1px solid #6d5728;border-radius:8px;text-align:center;}
+  #rank-list .rk{display:flex;justify-content:space-between;gap:8px;border-bottom:1px dashed #3a2f50;padding:2px 4px;}
+  #rank-list .rk.me{color:#ffe9ad;background:rgba(216,178,74,0.08);}
+  #rank-list .rk .n{flex:1;}
   #pausebtn{bottom:66px;font-size:15px;letter-spacing:1px;}
   #mute:hover,#pausebtn:hover{border-color:#e8c86a;}
   .gold{color:#f0d890;}
@@ -71,6 +77,10 @@
   <div class="panel">
     <h1>御剑伏妖</h1>
     <div class="sub">—— 万 妖 乱 世 · 五 百 关 · 第 100 关 灵 宠 降 临 ——</div>
+    <div id="name-row">
+      <input id="name-input" maxlength="8" placeholder="输入侠名">
+      <button class="btn small" id="btn-rank">排行榜</button>
+    </div>
     <div id="lv-grid"></div>
     <div id="hidden-area"></div>
     <div class="hint">
@@ -114,6 +124,15 @@
   </div>
 </div>
 
+<div class="screen" id="scr-rank">
+  <div class="panel">
+    <h1 style="font-size:40px;">天 外 榜</h1>
+    <div class="sub">—— 全服剑修过关进度 ——</div>
+    <div id="rank-list" style="min-height:200px;max-height:46vh;overflow-y:auto;text-align:left;font-size:15px;line-height:2;"></div>
+    <div><button class="btn small" id="btn-rank-refresh">刷新</button>
+    <button class="btn small" id="btn-rank-back">返回</button></div>
+  </div>
+</div>
 <div class="screen" id="scr-pause">
   <div class="panel">
     <h1 style="font-size:40px;">暂 停</h1>
@@ -691,11 +710,64 @@ function startLevel(lv, freshPlayer) {
   bgmStart(); // 进入战斗即起乐（用户手势后）
   if (cfg.boss) sfx.boss();
   else sfx.click();
+  lbReport();
 }
 function doPause() { if (G.state !== 'playing') return; G.state = 'paused'; showScreen('scr-pause'); }
 function doResume() { if (G.state !== 'paused') return; G.state = 'playing'; hideScreens(); }
 function toMenu() { G.state = 'menu'; showScreen('scr-menu'); buildMenu(); }
 
+const LB_URL = 'https://textdb.online/yujian-fuyao-lb-v1';
+let LB_LAST = 0;
+function playerName() {
+  const v = (localStorage.getItem('yujian_name') || '').trim();
+  return v || ('侠客' + Math.floor(100 + Math.random() * 900));
+}
+async function lbFetchAll() {
+  try {
+    const r = await fetch(LB_URL + '?t=' + Date.now());
+    const d = JSON.parse(await r.text());
+    return d && d.players ? d : { players: {} };
+  } catch (e) { return null; }
+}
+async function lbReport() {
+  const name = playerName();
+  if (!name || name.startsWith('侠客')) { /* 未命名也上报，用默认名 */ }
+  const now = Date.now();
+  if (now - LB_LAST < 15000) return;
+  LB_LAST = now;
+  try {
+    const base = (await lbFetchAll()) || { players: {} };
+    const ps = base.players || {};
+    const me = ps[name] || {};
+    ps[name] = {
+      best: Math.max(G.level, me.best || 1),
+      kills: Math.max(G.kills, me.kills || 0),
+      lv: Math.max(window.G.player.xpLv || 1, me.lv || 1),
+      upd: now,
+    };
+    await fetch(LB_URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ players: ps }),
+    });
+  } catch (e) { }
+}
+function renderRank(meName) {
+  const box = document.getElementById('rank-list');
+  box.innerHTML = '加载中……';
+  lbFetchAll().then(base => {
+    const ps = (base && base.players) || {};
+    const arr = Object.entries(ps).map(([n, v]) => ({ n, ...v }));
+    arr.sort((a, b) => (b.best - a.best) || (b.kills - a.kills) || ((a.upd || 0) - (b.upd || 0)));
+    if (!arr.length) { box.innerHTML = '暂无记录，快来抢占榜首！'; return; }
+    box.innerHTML = arr.slice(0, 50).map((r2, i) => {
+      const d = new Date(r2.upd || 0);
+      const tstr = r2.upd ? (d.getMonth() + 1) + '/' + d.getDate() + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') : '';
+      return '<div class="rk' + (r2.n === meName ? ' me' : '') + '"><span class="n">' + (i + 1) + '. ' + r2.n +
+        '</span><span>第' + r2.best + '关</span><span>斩' + r2.kills + '</span><span>' + tstr + '</span></div>';
+    }).join('');
+  });
+}
 function buildMenu() {
   const grid = $('lv-grid'); grid.innerHTML = '';
   LEVELS.slice(0, 500).forEach((lv, i) => {
@@ -753,7 +825,7 @@ function spawnMonster(type, px, py, forceElite) {
     maxHp: base.hp * lvMul * (elite ? 1.9 : 1),
     speed: base.speed * (1 + (G.level - 1) * 0.015) * rand(0.9, 1.1),
     dmg: Math.round(base.dmg * dmgMul * (elite ? 1.3 : 1)),
-    xp: base.xp * (elite ? 2 : 1),
+    xp: Math.round(base.xp * (1 + (G.level - 1) * 0.06) * (1 + Math.max(0, G.level - 5) * 0.22) * (elite ? 2 : 1)),
     elite, phase: rand(TAU), dirAng: 0,
     aiT: rand(2), hopT: rand(1), z: 0, born: 0.25,
   };
@@ -1089,6 +1161,7 @@ function hurtPlayer(dmg) {
     G.state = 'over';
     $('over-stats').innerHTML = '第 <b>' + G.level + '</b> 关 · 斩妖 <b>' + G.kills + '</b> · 历时 <b>' + fmtTime(G.time) + '</b>';
     showScreen('scr-over');
+    lbReport();
   }
 }
 function hurtEnemy(e, dmg, ang, knock, canCrit) {
@@ -1147,6 +1220,7 @@ function showClear() {
   G.state = 'clear';
   showScreen('scr-clear');
   sfx.win();
+  lbReport();
 }
 
 /* ================= 升级 ================= */
@@ -1156,7 +1230,7 @@ function gainXP(v) {
   while (p.xp >= p.xpNext) {
     p.xp -= p.xpNext;
     p.xpLv++;
-    p.xpNext = Math.round(22 * Math.pow(1.3, p.xpLv - 1));
+    p.xpNext = Math.round(22 * Math.pow(1.18, p.xpLv - 1));
     // 境界突破播报
     const tier = playerTier(p);
     if (tier > (p.tierShown || 1)) {
@@ -1255,10 +1329,13 @@ function update(dt) {
   // 环绕飞剑
   const orb = p.orbit;
   orb.ang += orb.rot * dt;
-  const slen = orb.len * p.sizeMul * 0.67;
+  const mobS = IS_MOBILE ? 0.67 : 1, mobR = IS_MOBILE ? 0.78 : 1;
+  const slen = orb.len * p.sizeMul * 0.67 * mobS;
+  const orbR = orb.radius * mobR;
   for (let i = 0; i < orb.count; i++) {
     const a = orb.ang + i / orb.count * TAU;
-    const sx = p.x + Math.cos(a) * orb.radius, sy = p.y + Math.sin(a) * orb.radius;
+    const mobR2 = IS_MOBILE ? 0.78 : 1;
+    const sx = p.x + Math.cos(a) * orb.radius * mobR2, sy = p.y + Math.sin(a) * orb.radius * mobR2;
     const bang = a + Math.PI / 2;
     const hx = sx + Math.cos(bang) * slen * 0.25, hy = sy + Math.sin(bang) * slen * 0.25;
     const hr = slen * 0.24;
@@ -1304,7 +1381,7 @@ function update(dt) {
       const ang = (tgt ? Math.atan2(tgt.y - p.y, tgt.x - p.x) : rand(TAU)) + spread;
       G.flies.push({
         x: p.x, y: p.y + 15, ang, speed: fly.speed, traveled: 0, phase: 'out',
-        len: fly.len * p.sizeMul * 0.67, dmg: fly.dmg * p.dmgMul, trail: [], scale: 0.3,
+        len: fly.len * p.sizeMul * (IS_MOBILE ? 0.54 : 0.67), dmg: fly.dmg * p.dmgMul, trail: [], scale: 0.3,
         idx, age: 0, backAt: 0.9 + idx * 0.15,
       });
       p.footFlash = 0.12;
@@ -3095,14 +3172,17 @@ function frame(now) {
     const p = G.player, orb = p.orbit, slen = orb.len * p.sizeMul;
     for (let i = 0; i < orb.count; i++) {
       const a = orb.ang + i / orb.count * TAU;
+      const mobR = IS_MOBILE ? 0.78 : 1;
+      const orbR2 = orb.radius * mobR;
+      const ox = p.x + Math.cos(a) * orbR2, oy = p.y + Math.sin(a) * orbR2;
       for (let k = 3; k >= 1; k--) {
         const aa = a - k * 0.075;
         ctx.globalAlpha = 0.24 - k * 0.06;
-        drawSword(p.x + Math.cos(aa) * orb.radius, p.y + Math.sin(aa) * orb.radius, aa + Math.PI / 2, slen, 0);
+        drawSword(p.x + Math.cos(aa) * orbR2, p.y + Math.sin(aa) * orbR2, aa + Math.PI / 2, slen, 0);
       }
       ctx.globalAlpha = 1;
       const el = swordElement(p), tas = (p.upCounts.sword || p.upCounts.volley) ? true : false;
-      drawSword(p.x + Math.cos(a) * orb.radius, p.y + Math.sin(a) * orb.radius, a + Math.PI / 2, slen, 0.5 + 0.2 * Math.sin(G.t * 6 + i), el, tas);
+      drawSword(ox, oy, a + Math.PI / 2, slen, 0.5 + 0.2 * Math.sin(G.t * 6 + i), el, tas);
     }
     // 出击飞剑（带残影）
     for (const f of G.flies) {
@@ -3177,6 +3257,17 @@ $('mute').onclick = toggleMute;
 $('pausebtn').onclick = doPause;
 document.addEventListener('visibilitychange', () => { if (document.hidden && G.state === 'playing') doPause(); });
 
+const nameInput = $('name-input');
+nameInput.value = localStorage.getItem('yujian_name') || '';
+nameInput.addEventListener('change', () => {
+  localStorage.setItem('yujian_name', nameInput.value.trim());
+});
+$('btn-rank').onclick = () => {
+  renderRank(playerName());
+  showScreen('scr-rank');
+};
+$('btn-rank-refresh').onclick = () => { renderRank(playerName()); };
+$('btn-rank-back').onclick = () => { showScreen('scr-menu'); };
 buildMenu();
 requestAnimationFrame(frame);
 
