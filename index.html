@@ -1450,27 +1450,29 @@ function update(dt) {
       f.scale = Math.min(1, (f.scale || 1) + 4.5 * dt);
       f.age = (f.age || 0) + dt;
       if (f.life !== undefined) { f.life -= dt; if (f.life <= 0) { G.flies.splice(i, 1); continue; } }
-      // 按激发顺序依次折返，收回脚底
-      if (f.age >= (f.backAt || 0.9)) f.phase = 'back';
       // 追踪：回风剑诀 / 分裂剑意（自动追踪）
       const hLv = Math.max(p.flyHoming || 0, p.splitGrade >= 0 ? (f.child ? 2 : 1) : 0);
+      let tracking = false;
       if (hLv) {
-        let best = null, bd = 340 * 340;
+        const hR = 340 + Math.max(0, hLv - 3) * 200; // 3 级后追踪范围每级 +200
+        let best = null, bd = hR * hR;
         for (const e of G.monsters) { if (e.hp <= 0) continue; const d2v = dist2(f.x, f.y, e.x, e.y); if (d2v < bd) { bd = d2v; best = e; } }
         if (G.boss && G.boss.dying < 0) { const d2v = dist2(f.x, f.y, G.boss.x, G.boss.y); if (d2v < bd) { bd = d2v; best = G.boss; } }
         if (best) {
+          tracking = true; // 有目标锁定：不受折返限制，追到命中为止
           const ta = Math.atan2(best.y - f.y, best.x - f.x);
           let da = ta - f.ang;
           while (da > Math.PI) da -= TAU;
           while (da < -Math.PI) da += TAU;
           const tv = (2.2 + hLv * 1.2) * (f.child ? 1.4 : 1);
-          f.ang += clamp(da, -tv * dt, tv * dt);
+          f.ang += clamp(da * 0.12, -tv * dt, tv * dt); // 比例导引：按剩余角差转向，消除绕圈
         }
       }
       f.x += Math.cos(f.ang) * f.speed * dt;
       f.y += Math.sin(f.ang) * f.speed * dt;
       f.traveled += f.speed * dt;
-      if (f.traveled > 560) f.phase = 'back';
+      if (!tracking && (f.age >= (f.backAt || 0.9) || f.traveled > 560)) f.phase = 'back';
+      if (f.age > 8) f.phase = 'back'; // 保险丝：追踪不超过 8 秒
     } else {
       // 收剑归脚底：剑柄朝前，逐渐缩小，吸收时光芒一闪
       const ma = Math.atan2((p.y + 12) - f.y, p.x - f.x);
