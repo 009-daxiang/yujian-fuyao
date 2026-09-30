@@ -58,6 +58,9 @@
   #mute,#pausebtn{position:fixed;right:14px;z-index:20;width:44px;height:44px;border-radius:50%;
     background:rgba(30,24,46,.8);border:1px solid #6d5728;color:#ecd9a0;font-size:19px;cursor:pointer;}
   #mute{bottom:12px;}
+  #save-row{display:flex;gap:10px;justify-content:center;margin:12px 0 0;}
+  #btn-new{color:#c98f8f;border-color:#7a4444;}
+  #btn-new.confirm{color:#ffd0d0;background:#5a2020;border-color:#c06060;}
   #name-row{display:flex;gap:8px;justify-content:center;margin:10px 0 2px;}
   #name-input{width:150px;padding:8px 10px;font-family:inherit;font-size:15px;color:#f0d890;
     background:#17121f;border:1px solid #6d5728;border-radius:8px;text-align:center;}
@@ -77,6 +80,10 @@
   <div class="panel">
     <h1>御剑伏妖</h1>
     <div class="sub">—— 万 妖 乱 世 · 五 百 关 · 第 100 关 灵 宠 降 临 ——</div>
+    <div id="save-row">
+      <button class="btn" id="btn-continue" style="display:none;">继续游戏</button>
+      <button class="btn small" id="btn-new" style="display:none;">重新修行</button>
+    </div>
     <div id="name-row">
       <input id="name-input" maxlength="8" placeholder="输入侠名">
       <button class="btn small" id="btn-rank">排行榜</button>
@@ -688,6 +695,8 @@ function newPlayer() {
 function startRun(lv) {
   G.player = newPlayer();
   G.pet = null;
+  G.skills = {};
+  clearSave();
   startLevel(lv, true);
 }
 function startLevel(lv, freshPlayer) {
@@ -715,6 +724,7 @@ function startLevel(lv, freshPlayer) {
   bgmStart(); // 进入战斗即起乐（用户手势后）
   if (cfg.boss) sfx.boss();
   else sfx.click();
+  saveGame();
   lbReport();
 }
 function doPause() { if (G.state !== 'playing') return; G.state = 'paused'; showScreen('scr-pause'); }
@@ -766,6 +776,31 @@ async function lbReport() {
     });
   } catch (e) { }
 }
+const SAVE_KEY = 'yujian_save_player';
+function saveGame() {
+  if (!G.player) return;
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      level: G.level,
+      player: G.player,
+      skills: G.skills,
+    }));
+  } catch (e) { }
+}
+function hasSave() { return !!localStorage.getItem(SAVE_KEY); }
+function clearSave() { localStorage.removeItem(SAVE_KEY); }
+function loadGame() {
+  try {
+    const d = JSON.parse(localStorage.getItem(SAVE_KEY));
+    if (d && d.level && d.player) {
+      G.player = Object.assign(newPlayer(), d.player);
+      G.skills = d.skills || {};
+      startLevel(d.level, true);
+      return true;
+    }
+  } catch (e) { }
+  return false;
+}
 function renderRank(meName) {
   const box = document.getElementById('rank-list');
   box.innerHTML = '加载中……';
@@ -789,7 +824,7 @@ function buildMenu() {
     const b = document.createElement('button');
     b.className = 'lvbtn' + (n <= SAVE.unlocked ? '' : ' locked');
     b.innerHTML = (n <= SAVE.unlocked ? n : '锁') + '<span class="bn">' + (lv.boss ? '妖王' : '第' + n + '关') + '</span>';
-    if (n <= SAVE.unlocked) b.onclick = () => startRun(n);
+    if (n <= SAVE.unlocked) b.onclick = () => { if (G.player) { startLevel(n, true); } else { startRun(n); } };
     grid.appendChild(b);
   });
   // 终极隐藏章「天外天」：通关第 500 关解锁
@@ -1256,6 +1291,7 @@ function gainXP(v) {
       tone(660, 0.3, 'triangle', 0.12, 220);
       G.hitStop = Math.max(G.hitStop, 0.12);
     }
+    saveGame();
     openLevelUp();
   }
 }
@@ -1291,6 +1327,7 @@ function pickCard(i) {
   const a2 = ac();
   if (a2) { const t0 = a2.currentTime; playSample('harp', 'C4', t0, 1, 0.18); playSample('harp', 'E4', t0 + 0.09, 1, 0.15); playSample('harp', 'A4', t0 + 0.18, 1, 0.15); }
   sfx.click();
+  saveGame();
   hideScreens();
   G.state = 'playing';
   burst(G.player.x, G.player.y, '#ffe08a', 24);
@@ -1795,6 +1832,7 @@ function update(dt) {
         }
         burst(p.x, p.y, gm.c, 26, 240);
         sfx.levelup();
+        saveGame();
       }
       continue;
     }
@@ -3271,6 +3309,22 @@ $('mute').onclick = toggleMute;
 $('pausebtn').onclick = doPause;
 document.addEventListener('visibilitychange', () => { if (document.hidden && G.state === 'playing') doPause(); });
 
+const btnContinue = $('btn-continue'), btnNew = $('btn-new');
+function refreshSaveRow() {
+  const has = hasSave();
+  btnContinue.style.display = has ? '' : 'none';
+  btnNew.style.display = has ? '' : 'none';
+  btnNew.classList.remove('confirm');
+  btnNew.textContent = '重新修行';
+}
+btnContinue.onclick = () => { if (!loadGame()) startRun(1); };
+let newConfirm = false;
+btnNew.onclick = () => {
+  if (!newConfirm) { newConfirm = true; btnNew.classList.add('confirm'); btnNew.textContent = '确认重来？'; setTimeout(() => { newConfirm = false; btnNew.classList.remove('confirm'); btnNew.textContent = '重新修行'; }, 2500); return; }
+  newConfirm = false;
+  clearSave();
+  startRun(1);
+};
 const nameInput = $('name-input');
 nameInput.value = localStorage.getItem('yujian_name') || '';
 nameInput.addEventListener('change', () => {
@@ -3289,6 +3343,7 @@ $('btn-lb-token').onclick = () => {
 if (localStorage.getItem('yujian_lb_token')) $('lb-token-input').placeholder = '已配置 ✓';
 $('btn-rank-back').onclick = () => { showScreen('scr-menu'); };
 buildMenu();
+refreshSaveRow();
 requestAnimationFrame(frame);
 
 // 调试钩子（试玩/自动化测试用）
