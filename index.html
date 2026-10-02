@@ -688,6 +688,7 @@ function newPlayer() {
     orbit: { count: 2, radius: 96, rot: 2.7, ang: 0, len: 82, dmg: 9 },
     fly: { cd: 1.6, t: 0.9, speed: 660, len: 88, dmg: 12 },
     flyExtra: 0, flyHoming: 0, splitGrade: -1, splitBonus: 0,
+    dirX: 1, dirY: 0, ringOff: 0,
     aura: null,
   };
 }
@@ -1377,6 +1378,13 @@ function update(dt) {
   p.x = clamp(p.x + mx * spd * dt, 18, WORLD.w - 18);
   p.y = clamp(p.y + my * spd * dt, 18, WORLD.h - 18);
   if (mx !== 0) p.faceX = mx > 0 ? 1 : -1;
+  // 朝向平滑 + 剑环甩向前方
+  if (mx || my) {
+    const dl = Math.hypot(mx, my) || 1;
+    p.dirX += (mx / dl - p.dirX) * Math.min(1, 9 * dt);
+    p.dirY += (my / dl - p.dirY) * Math.min(1, 9 * dt);
+  }
+  p.ringOff = lerp(p.ringOff || 0, (mx || my) ? 1 : 0, Math.min(1, 7 * dt));
 
   // 环绕飞剑
   const orb = p.orbit;
@@ -1386,8 +1394,9 @@ function update(dt) {
   const orbR = orb.radius * mobR;
   for (let i = 0; i < orb.count; i++) {
     const a = orb.ang + i / orb.count * TAU;
+    const ocx = p.x + p.dirX * 26 * (p.ringOff || 0), ocy = p.y + p.dirY * 26 * (p.ringOff || 0);
     const mobR2 = IS_MOBILE ? 0.47 : 1;
-    const sx = p.x + Math.cos(a) * orb.radius * mobR2, sy = p.y + Math.sin(a) * orb.radius * mobR2;
+    const sx = ocx + Math.cos(a) * orb.radius * mobR2, sy = ocy + Math.sin(a) * orb.radius * mobR2;
     const bang = a + Math.PI / 2;
     const hx = sx + Math.cos(bang) * slen * 0.25, hy = sy + Math.sin(bang) * slen * 0.25;
     const hr = slen * 0.24;
@@ -3258,7 +3267,7 @@ function frame(now) {
       for (let k = 3; k >= 1; k--) {
         const aa = a - k * 0.075;
         ctx.globalAlpha = 0.24 - k * 0.06;
-        drawSword(p.x + Math.cos(aa) * orbR2, p.y + Math.sin(aa) * orbR2, aa + Math.PI / 2, slen, 0);
+        drawSword(ocx2 + Math.cos(aa) * orbR2, ocy2 + Math.sin(aa) * orbR2, aa + Math.PI / 2, slen, 0);
       }
       ctx.globalAlpha = 1;
       const el = swordElement(p), tas = (p.upCounts.sword || p.upCounts.volley) ? true : false;
