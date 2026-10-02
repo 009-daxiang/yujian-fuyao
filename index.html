@@ -1386,7 +1386,7 @@ function update(dt) {
   const orbR = orb.radius * mobR;
   for (let i = 0; i < orb.count; i++) {
     const a = orb.ang + i / orb.count * TAU;
-    const mobR2 = IS_MOBILE ? 0.78 : 1;
+    const mobR2 = IS_MOBILE ? 0.47 : 1;
     const sx = p.x + Math.cos(a) * orb.radius * mobR2, sy = p.y + Math.sin(a) * orb.radius * mobR2;
     const bang = a + Math.PI / 2;
     const hx = sx + Math.cos(bang) * slen * 0.25, hy = sy + Math.sin(bang) * slen * 0.25;
@@ -3252,7 +3252,7 @@ function frame(now) {
     const p = G.player, orb = p.orbit, slen = orb.len * p.sizeMul;
     for (let i = 0; i < orb.count; i++) {
       const a = orb.ang + i / orb.count * TAU;
-      const mobR = IS_MOBILE ? 0.78 : 1;
+      const mobR = IS_MOBILE ? 0.47 : 1;
       const orbR2 = orb.radius * mobR;
       const ox = p.x + Math.cos(a) * orbR2, oy = p.y + Math.sin(a) * orbR2;
       for (let k = 3; k >= 1; k--) {
